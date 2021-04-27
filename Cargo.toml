@@ -1,0 +1,11 @@
+[package]
+name = "dy_task"
+version = "0.0.1"
+authors = ["Jongmin Yun <jmyundev@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+thiserror = "1.0.24"
+crossbeam-utils = "0.8.3"
