@@ -5,4 +5,6 @@ use thiserror::Error;
 pub enum TaskError {
     #[error("Can not chain group itself.")]
     InvalidChaining,
+    #[error("Invalidated group handle.")]
+    InvalidGroupHandle,
 }

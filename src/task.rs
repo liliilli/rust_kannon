@@ -95,6 +95,13 @@ impl TaskHandle {
             None
         }
     }
+
+    ///
+    ///
+    ///
+    pub fn is_released(&self) -> bool {
+        self.value.strong_count() == 0
+    }
 }
 
 ///

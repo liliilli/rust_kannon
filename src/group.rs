@@ -17,9 +17,9 @@ pub struct GroupRaw {
     /// Unique id of the group.
     id: usize,
     /// Local task handle list for calling tasks in batch.
-    tasks: Vec<TaskHandle>,
+    pub(crate) tasks: Vec<TaskHandle>,
     /// Stores chaining information to other groups.
-    chains: GroupChains,
+    pub(crate) chains: GroupChains,
 }
 
 impl GroupRaw {
@@ -43,15 +43,29 @@ impl GroupRaw {
             }
         }
     }
+
+    ///
+    ///
+    ///
+    pub fn has_successors(&self) -> bool {
+        self.chains.success_group_list.is_empty()
+    }
+
+    ///
+    ///
+    ///
+    pub fn has_predecessors(&self) -> bool {
+        self.chains.precede_group_list.is_empty()
+    }
 }
 
 /// Stores chaining informations to other groups.
 #[derive(Default)]
-struct GroupChains {
+pub(crate) struct GroupChains {
     ///
-    precede_group_list: Vec<GroupHandle>,
+    pub(crate) precede_group_list: Vec<GroupHandle>,
     ///
-    success_group_list: Vec<GroupHandle>,
+    pub(crate) success_group_list: Vec<GroupHandle>,
 }
 
 /// Task group unit.
@@ -104,6 +118,41 @@ impl Group {
         let guard = self.raw.lock().unwrap();
         guard.call_all();
     }
+
+    /// Let this group precede given other group.
+    ///
+    /// If function is successful, this group will be processed before other group.
+    pub fn precede(&mut self, handle: GroupHandle) -> Result<(), error::TaskError> {
+        let this_handle = self.handle();
+        let mut guard = self.raw.lock().unwrap();
+        if guard.id == handle.id {
+            // Same group can not be chain each other.
+            Err(error::TaskError::InvalidChaining)
+        } else {
+            // Check given handle is already inserted into the lists (precede and success).
+            let other_id = handle.id;
+            let this_predeces = &guard.chains.precede_group_list;
+            if this_predeces.iter().any(|x| x.id == other_id) {
+                return Err(error::TaskError::InvalidChaining);
+            }
+            let this_successors = &guard.chains.success_group_list;
+            if this_successors.iter().any(|x| x.id == other_id) {
+                return Err(error::TaskError::InvalidChaining);
+            }
+            // this_predeces and this_successors will not be used anymore.
+
+            let mut other_handle = handle.clone();
+            let mut other_group = match other_handle.value_as_mut() {
+                None => return Err(error::TaskError::InvalidGroupHandle),
+                Some(accessor) => accessor,
+            };
+
+            // Make chain relation.
+            guard.chains.success_group_list.push(handle);
+            other_group.chains.precede_group_list.push(this_handle);
+            Ok(())
+        }
+    }
 }
 
 ///
@@ -143,6 +192,24 @@ impl GroupHandle {
             None
         }
     }
+
+    ///
+    ///
+    ///
+    pub fn is_released(&self) -> bool {
+        self.value.strong_count() == 0
+    }
+
+    /// Return unique id of group.
+    pub fn id(&self) -> usize {
+        self.id
+    }
+}
+
+impl std::cmp::PartialEq for GroupHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 ///
@@ -165,22 +232,6 @@ impl<'a> Deref for GroupAccessor<'a> {
 ///
 pub struct MutGroupAccessor<'a> {
     guard: MutexGuard<'a, GroupRaw>,
-}
-
-impl<'a> MutGroupAccessor<'a> {
-    ///
-    ///
-    ///
-    fn precede_group(&mut self, group: GroupHandle) -> Result<(), error::TaskError> {
-        if self.guard.id == group.id {
-            return Err(error::TaskError::InvalidChaining);
-        }
-
-        // Chain each other.
-        //self.success_group_list.push(group);
-        //group.value_as_mut().unwrap().precede_group_list.push();
-        Ok(())
-    }
 }
 
 impl<'a> Deref for MutGroupAccessor<'a> {
