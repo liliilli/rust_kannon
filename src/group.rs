@@ -23,6 +23,9 @@ pub struct GroupRaw {
 }
 
 impl GroupRaw {
+    ///
+    ///
+    ///
     fn new(name: &str, id: usize) -> Self {
         Self {
             name: name.to_string(),
@@ -32,28 +35,12 @@ impl GroupRaw {
         }
     }
 
-    ///
-    ///
-    ///
-    pub fn call_all(&self) {
-        for task in &self.tasks {
-            match task.value_as_ref() {
-                None => continue,
-                Some(accessor) => accessor.call(),
-            }
-        }
-    }
-
-    ///
-    ///
-    ///
+    /// Check group has successor groups.
     pub fn has_successors(&self) -> bool {
         self.chains.success_group_list.is_empty()
     }
 
-    ///
-    ///
-    ///
+    /// Check group has predecessor groups.
     pub fn has_predecessors(&self) -> bool {
         self.chains.precede_group_list.is_empty()
     }
@@ -114,9 +101,79 @@ impl Group {
     ///
     ///
     ///
-    pub fn call_all(&self) {
-        let guard = self.raw.lock().unwrap();
-        guard.call_all();
+    ///
+    #[must_use]
+    pub fn create_task(
+        &mut self,
+        name: &str,
+        f: impl Fn() + 'static,
+    ) -> Result<Task, error::TaskError> {
+        if name.is_empty() {
+            Err(error::TaskError::InvalidItemName)
+        } else {
+            let f = Box::new(f);
+            let task = Task::from_closure(name, f);
+            let task_handle = task.handle();
+
+            let mut raw = self.raw.lock().unwrap();
+            raw.tasks.push(task_handle);
+
+            Ok(task)
+        }
+    }
+
+    ///
+    ///
+    ///
+    #[must_use]
+    pub fn create_task_method<T, F>(
+        &mut self,
+        name: &str,
+        t: &T,
+        f: F,
+    ) -> Result<Task, error::TaskError>
+    where
+        T: 'static,
+        F: Fn(&T) + 'static,
+    {
+        if name.is_empty() {
+            Err(error::TaskError::InvalidItemName)
+        } else {
+            let task = Task::from_method(name, t, f);
+            let task_handle = task.handle();
+
+            let mut raw = self.raw.lock().unwrap();
+            raw.tasks.push(task_handle);
+
+            Ok(task)
+        }
+    }
+
+    ///
+    ///
+    ///
+    #[must_use]
+    pub fn create_task_method_mut<T, F>(
+        &mut self,
+        name: &str,
+        t: &mut T,
+        f: F,
+    ) -> Result<Task, error::TaskError>
+    where
+        T: 'static,
+        F: Fn(&mut T) + 'static,
+    {
+        if name.is_empty() {
+            Err(error::TaskError::InvalidItemName)
+        } else {
+            let task = Task::from_method_mut(name, t, f);
+            let task_handle = task.handle();
+
+            let mut raw = self.raw.lock().unwrap();
+            raw.tasks.push(task_handle);
+
+            Ok(task)
+        }
     }
 
     /// Let this group precede given other group.
@@ -251,42 +308,16 @@ impl<'a> DerefMut for MutGroupAccessor<'a> {
 ///
 ///
 ///
-pub type GroupList = Vec<GroupHandle>;
+pub(crate) type GroupList = Vec<GroupHandle>;
 
 ///
 ///
 ///
 #[must_use]
-pub fn create_group(group_list: &mut GroupList, group_name: &str) -> Group {
-    let group = Group::new(group_name);
+pub(crate) fn create_group(groups: &mut GroupList, name: &str) -> Group {
+    let group = Group::new(name);
     let group_handle = group.handle();
 
-    group_list.push(group_handle);
+    groups.push(group_handle);
     group
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn testest() {
-        use crate::*;
-        let mut group_list = group::GroupList::default();
-
-        let mut group1 = create_group(&mut group_list, "Hello world! group 1");
-        println!("{}", group1.name());
-
-        let group2 = create_group(&mut group_list, "Bye world! group 2");
-        println!("{}", group2.name());
-
-        let task1 = group1.create_task_as_closure(
-            "Closure1",
-            Box::new(|| {
-                println!("Hello world! from group1");
-            }),
-        );
-        println!("{}", task1.name());
-
-        group1.call_all();
-        task1.call();
-    }
 }

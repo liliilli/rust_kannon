@@ -1,12 +1,57 @@
+use std::cell::RefCell;
 use std::mem;
 use std::ops::Deref;
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
+
+/// Internal trait
+trait Functor {
+    /// Call binded function.
+    fn call(&self);
+}
 
 ///
 ///
 ///
-enum EItemType {
-    Closure(Box<dyn Fn()>),
+struct TaskClosure {
+    f: Box<dyn Fn()>,
+}
+
+impl Functor for TaskClosure {
+    fn call(&self) {
+        (self.f)()
+    }
+}
+
+///
+///
+///
+struct TaskMethod<T, F> {
+    t: NonNull<T>,
+    f: F,
+}
+
+impl<T, F> Functor for TaskMethod<T, F>
+where
+    F: Fn(&T),
+{
+    fn call(&self) {
+        (self.f)(unsafe { self.t.as_ref() })
+    }
+}
+
+struct TaskMethodMut<T, F> {
+    t: RefCell<NonNull<T>>,
+    f: F,
+}
+
+impl<T, F> Functor for TaskMethodMut<T, F>
+where
+    F: Fn(&mut T),
+{
+    fn call(&self) {
+        (self.f)(unsafe { self.t.borrow_mut().as_mut() })
+    }
 }
 
 /// Raw type for `Task` instance.
@@ -14,21 +59,55 @@ enum EItemType {
 /// Stores actual informations for task.
 pub struct TaskRaw {
     pub name: String,
-    func: EItemType,
+    func: Box<dyn Functor>,
 }
 
 impl TaskRaw {
-    fn from_closure(name: &str, func: Box<dyn Fn()>) -> Self {
+    ///
+    ///
+    ///
+    fn from_closure(name: &str, f: Box<dyn Fn()>) -> Self {
         Self {
             name: name.to_string(),
-            func: EItemType::Closure(func),
+            func: Box::new(TaskClosure { f }),
         }
     }
 
-    pub fn call(&self) {
-        match &self.func {
-            EItemType::Closure(func) => func(),
+    ///
+    ///
+    ///
+    fn from_method<T, F>(name: &'_ str, t: &T, f: F) -> Self
+    where
+        T: 'static,
+        F: Fn(&T) + 'static,
+    {
+        let t = NonNull::new(t as *const _ as *mut T).unwrap();
+
+        Self {
+            name: name.to_string(),
+            func: Box::new(TaskMethod { t, f }),
         }
+    }
+
+    ///
+    ///
+    ///
+    fn from_method_mut<T, F>(name: &'_ str, t: &mut T, f: F) -> Self
+    where
+        T: 'static,
+        F: Fn(&mut T) + 'static,
+    {
+        let t = RefCell::new(NonNull::new(t as *mut T).unwrap());
+
+        Self {
+            name: name.to_string(),
+            func: Box::new(TaskMethodMut { t, f }),
+        }
+    }
+
+    /// Call binded function (closure, or methods).
+    pub(crate) fn call(&self) {
+        self.func.call()
     }
 }
 
@@ -41,8 +120,36 @@ impl Task {
     ///
     ///
     ///
-    pub fn from_closure(task_name: &str, func: Box<dyn Fn()>) -> Self {
-        let raw = TaskRaw::from_closure(task_name, func);
+    pub(crate) fn from_closure(name: &str, f: Box<dyn Fn()>) -> Self {
+        let raw = TaskRaw::from_closure(name, f);
+        Self {
+            raw: Arc::new(Mutex::new(raw)),
+        }
+    }
+
+    ///
+    ///
+    ///
+    pub(crate) fn from_method<T, F>(name: &'_ str, t: &T, f: F) -> Self
+    where
+        T: 'static,
+        F: Fn(&T) + 'static,
+    {
+        let raw = TaskRaw::from_method(name, t, f);
+        Self {
+            raw: Arc::new(Mutex::new(raw)),
+        }
+    }
+
+    ///
+    ///
+    ///
+    pub(crate) fn from_method_mut<T, F>(name: &'_ str, t: &mut T, f: F) -> Self
+    where
+        T: 'static,
+        F: Fn(&mut T) + 'static,
+    {
+        let raw = TaskRaw::from_method_mut(name, t, f);
         Self {
             raw: Arc::new(Mutex::new(raw)),
         }
@@ -67,7 +174,7 @@ impl Task {
     /// # Notes
     ///
     /// Maybe performance down by locking whenever calling callbacks.
-    pub fn call(&self) {
+    pub(crate) fn call(&self) {
         self.raw.lock().unwrap().call();
     }
 }

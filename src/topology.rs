@@ -3,18 +3,23 @@ use std::sync::{
     Arc, Mutex, Weak,
 };
 
+use super::error::TaskError;
 use super::group;
 use super::task;
 
+/// Represents executable task group unit.
+///
+///
 pub struct Topology {
     group_nodes: Vec<Arc<Mutex<GroupNode>>>,
     pub(crate) root_groups: Vec<GroupNodeHandle>,
 }
 
 impl Topology {
+    /// Create group node list from the input, but not chained list.
     ///
-    ///
-    ///
+    /// Internal function.
+    /// Called from `Self::try_from`.
     fn create_group_nodes(group_list: &group::GroupList) -> Vec<Arc<Mutex<GroupNode>>> {
         let mut group_nodes = vec![];
         group_list.iter().for_each(|x| {
@@ -61,24 +66,33 @@ impl Topology {
         group_nodes
     }
 
+    /// Try to create topology instance from group list.
     ///
+    /// Successfully created topology instance can be executable and have validated group and
+    /// tasks.
     ///
-    pub fn try_from(group_list: &group::GroupList) -> Option<Self> {
+    /// If failed, library error code will be returned.
+    pub(crate) fn try_from(groups: &group::GroupList) -> Result<Self, TaskError> {
         // Check there is a any validated group and not empty.
-        if group_list.is_empty() || group_list.iter().all(|group| group.is_released()) {
-            return None;
+        if groups.is_empty() || groups.iter().all(|group| group.is_released()) {
+            return Err(TaskError::NoValidatedGroups);
         }
 
         // Make topology item and fill it.
-        let group_nodes = Self::create_group_nodes(group_list);
+        let group_nodes = Self::create_group_nodes(groups);
 
         // Make chain to each groups.
-        for group in group_nodes.iter() {
+        for group_node in group_nodes.iter() {
             let successor_nodes = {
-                let group = group.lock().unwrap();
-                let accessor = group.handle.value_as_ref().unwrap();
-                let successors = &accessor.chains.success_group_list;
+                let group_node = group_node.lock().unwrap();
+                let successors = &group_node
+                    .handle
+                    .value_as_ref()
+                    .unwrap()
+                    .chains
+                    .success_group_list;
 
+                // Find successor nodes from actual group's successors.
                 let mut successor_nodes: Vec<_> = group_nodes
                     .iter()
                     .filter(|&g| match g.try_lock() {
@@ -99,39 +113,44 @@ impl Topology {
                         .fetch_add(1, Ordering::Relaxed);
                 });
 
-                let mut v = vec![];
+                // Downgrade successors.
+                let mut weaks = vec![];
                 for node in successor_nodes.into_iter() {
-                    v.push(Arc::downgrade(node));
+                    weaks.push(Arc::downgrade(node));
                 }
-                v
+                weaks
             };
 
             // Intended cloning for avoiding borrow rule violation.
-            let group = group.clone();
-            group.lock().unwrap().successor_nodes = successor_nodes;
+            let group_node = group_node.clone();
+            group_node.lock().unwrap().successor_nodes = successor_nodes;
         }
 
-        let root_groups = {
-            let mut v = vec![];
-            let root_groups_iter = group_nodes.iter().filter(|&g| {
-                let guard = g.lock().unwrap();
-                guard.remained_predecessor_cnt.load(Ordering::Relaxed) == 0
-            });
-            for root_group in root_groups_iter {
-                v.push(Arc::downgrade(root_group));
-            }
-            v
+        // Make root group node list which items does not have any predeceed group nodes.
+        let root_group_nodes = {
+            let mut nodes = vec![];
+            group_nodes
+                .iter()
+                .filter(|&g| g.lock().unwrap().is_ready())
+                .for_each(|g| nodes.push(Arc::downgrade(g)));
+            nodes
         };
 
-        Some(Self {
+        Ok(Self {
             group_nodes,
-            root_groups,
+            root_groups: root_group_nodes,
         })
     }
 }
 
+///
+///
+///
 pub(crate) type GroupNodeHandle = Weak<Mutex<GroupNode>>;
 
+///
+///
+///
 pub struct GroupNode {
     handle: group::GroupHandle,
     pub(crate) task_nodes: Vec<TaskNode>,
@@ -152,6 +171,13 @@ impl GroupNode {
             successor_nodes: vec![],
             remained_predecessor_cnt: AtomicU32::new(0),
         }
+    }
+
+    /// Check group node is ready to being processed.
+    ///
+    ///
+    pub fn is_ready(&self) -> bool {
+        self.remained_predecessor_cnt.load(Ordering::Acquire) == 0
     }
 }
 

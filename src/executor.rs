@@ -59,6 +59,8 @@ impl Executor {
         loop {
             let task = rx.try_recv();
             if task.is_err() {
+                // Check hitotu karano item wo irete, karano guru-pudemo tsugihe susumeru youni
+                // suru.
                 break;
             }
 
