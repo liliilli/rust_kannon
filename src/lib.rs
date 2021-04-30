@@ -31,14 +31,10 @@ impl Manager {
     ///
     /// # Arguments
     ///
-    /// * `name` - Not empty valid group name.
+    /// * `name` - Not empty, valid group name.
     #[must_use]
     pub fn create_group(&mut self, name: &str) -> Result<Group, TaskError> {
-        if name.is_empty() {
-            Err(TaskError::InvalidItemName)
-        } else {
-            Ok(create_group(&mut self.groups, name))
-        }
+        create_group(&mut self.groups, name)
     }
 
     /// Create new topology which can be executable tasks or return failure value.

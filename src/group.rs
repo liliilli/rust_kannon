@@ -1,4 +1,4 @@
-use super::error;
+use super::error::TaskError;
 use super::task;
 use task::{Task, TaskHandle};
 
@@ -23,9 +23,14 @@ pub struct GroupRaw {
 }
 
 impl GroupRaw {
+    /// Create new group.
     ///
+    /// Every heap allocation in inside must be successful.
+    /// Given `name` instance must be valid and not empty. It's okay to be duplicated to other
+    /// group's name.
     ///
-    ///
+    /// Given `id` must be valid and not duplicated to other group's id, so must be unique.
+    /// This function is not be called directly, but usually from `Group::new` method.
     fn new(name: &str, id: usize) -> Self {
         Self {
             name: name.to_string(),
@@ -61,22 +66,12 @@ pub struct Group {
 }
 
 impl Group {
-    /// Creat new group with valid informatons.
-    fn new(group_name: &str) -> Self {
-        static mut ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-        let id = unsafe { ID_COUNTER.fetch_add(1, Ordering::Relaxed) };
-        Self {
-            raw: Arc::new(Mutex::new(GroupRaw::new(group_name, id))),
-        }
-    }
-
     /// Get the name of the group.
     pub fn name(&self) -> String {
         self.raw.lock().unwrap().name.clone()
     }
 
-    /// Get handle item of this group.
+    /// Get new handle item of the group.
     pub fn handle(&self) -> GroupHandle {
         GroupHandle {
             value: Arc::downgrade(&self.raw),
@@ -84,32 +79,13 @@ impl Group {
         }
     }
 
-    /// Create task which has closure instance.
+    /// Create task which is binding lambda closure.
     ///
-    ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
     #[must_use]
-    pub fn create_task_as_closure(&mut self, task_name: &str, closure: Box<dyn Fn()>) -> Task {
-        let task = Task::from_closure(task_name, closure);
-        let task_handle = task.handle();
-
-        let mut raw = self.raw.lock().unwrap();
-        raw.tasks.push(task_handle);
-
-        task
-    }
-
-    ///
-    ///
-    ///
-    ///
-    #[must_use]
-    pub fn create_task(
-        &mut self,
-        name: &str,
-        f: impl Fn() + 'static,
-    ) -> Result<Task, error::TaskError> {
+    pub fn create_task(&mut self, name: &str, f: impl Fn() + 'static) -> Result<Task, TaskError> {
         if name.is_empty() {
-            Err(error::TaskError::InvalidItemName)
+            Err(TaskError::InvalidItemName)
         } else {
             let f = Box::new(f);
             let task = Task::from_closure(name, f);
@@ -122,22 +98,22 @@ impl Group {
         }
     }
 
+    /// Create task which is binding item's pointer and valid immutable method from the item.
     ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
+    /// Being binded item should not be invalidated, or moved state.
+    /// Otherwise, calling invalidated item's method will be undefined behavior.
     ///
-    ///
+    /// Calling method of task may not invalidate borrowing rule, but care about synchronization
+    /// and data race manually in the logic.
     #[must_use]
-    pub fn create_task_method<T, F>(
-        &mut self,
-        name: &str,
-        t: &T,
-        f: F,
-    ) -> Result<Task, error::TaskError>
+    pub fn create_task_method<T, F>(&mut self, name: &str, t: &T, f: F) -> Result<Task, TaskError>
     where
         T: 'static,
         F: Fn(&T) + 'static,
     {
         if name.is_empty() {
-            Err(error::TaskError::InvalidItemName)
+            Err(TaskError::InvalidItemName)
         } else {
             let task = Task::from_method(name, t, f);
             let task_handle = task.handle();
@@ -149,22 +125,27 @@ impl Group {
         }
     }
 
+    /// Create task which is binding item's pointer and valid mutable method from the item.
     ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
+    /// Being binded item should not be invalidated, or moved state.
+    /// Otherwise, calling invalidated item's immutable method will be undefined behavior.
     ///
-    ///
+    /// Calling method of task may not invalidate borrowing rule, but care about synchronization
+    /// and data race manually in the logic.
     #[must_use]
     pub fn create_task_method_mut<T, F>(
         &mut self,
         name: &str,
         t: &mut T,
         f: F,
-    ) -> Result<Task, error::TaskError>
+    ) -> Result<Task, TaskError>
     where
         T: 'static,
         F: Fn(&mut T) + 'static,
     {
         if name.is_empty() {
-            Err(error::TaskError::InvalidItemName)
+            Err(TaskError::InvalidItemName)
         } else {
             let task = Task::from_method_mut(name, t, f);
             let task_handle = task.handle();
@@ -179,28 +160,28 @@ impl Group {
     /// Let this group precede given other group.
     ///
     /// If function is successful, this group will be processed before other group.
-    pub fn precede(&mut self, handle: GroupHandle) -> Result<(), error::TaskError> {
+    pub fn precede(&mut self, handle: GroupHandle) -> Result<(), TaskError> {
         let this_handle = self.handle();
         let mut guard = self.raw.lock().unwrap();
         if guard.id == handle.id {
             // Same group can not be chain each other.
-            Err(error::TaskError::InvalidChaining)
+            Err(TaskError::InvalidChaining)
         } else {
             // Check given handle is already inserted into the lists (precede and success).
             let other_id = handle.id;
             let this_predeces = &guard.chains.precede_group_list;
             if this_predeces.iter().any(|x| x.id == other_id) {
-                return Err(error::TaskError::InvalidChaining);
+                return Err(TaskError::InvalidChaining);
             }
             let this_successors = &guard.chains.success_group_list;
             if this_successors.iter().any(|x| x.id == other_id) {
-                return Err(error::TaskError::InvalidChaining);
+                return Err(TaskError::InvalidChaining);
             }
             // this_predeces and this_successors will not be used anymore.
-
+            // Check other is still validated.
             let mut other_handle = handle.clone();
             let mut other_group = match other_handle.value_as_mut() {
-                None => return Err(error::TaskError::InvalidGroupHandle),
+                None => return Err(TaskError::InvalidGroupHandle),
                 Some(accessor) => accessor,
             };
 
@@ -212,7 +193,7 @@ impl Group {
     }
 }
 
-///
+/// Handle type for the group.
 ///
 ///
 #[derive(Clone)]
@@ -222,9 +203,11 @@ pub struct GroupHandle {
 }
 
 impl GroupHandle {
+    /// Access to the group execusively and return accessor `GroupAccessor` item.
     ///
-    ///
-    ///
+    /// If actual group item is invalidated, do nothing just return `None` value.
+    /// When group is already locked by other context, it waits until locking is end.
+    /// Be careful not causing dead-lock.
     pub fn value_as_ref<'a>(&'a self) -> Option<GroupAccessor<'a>> {
         let group = self.value.upgrade()?;
         let group_lock = group.lock();
@@ -236,23 +219,23 @@ impl GroupHandle {
         }
     }
 
+    /// Access to the group execusively and return accessor `GroupAccessorMut` item.
     ///
-    ///
-    ///
-    pub fn value_as_mut<'a>(&'a mut self) -> Option<MutGroupAccessor<'a>> {
+    /// If actual group item is invalidated, do nothing just return `None` value.
+    /// When group is already locked by other context, it waits until locking is end.
+    /// Be careful not causing dead-lock.
+    pub fn value_as_mut<'a>(&'a mut self) -> Option<GroupAccessorMut<'a>> {
         let group = self.value.upgrade()?;
         let group_lock = group.lock();
         if let Ok(guard) = group_lock {
             let guard: MutexGuard<'a, GroupRaw> = unsafe { mem::transmute(guard) };
-            Some(MutGroupAccessor { guard })
+            Some(GroupAccessorMut { guard })
         } else {
             None
         }
     }
 
-    ///
-    ///
-    ///
+    /// Check this group is released or not.
     pub fn is_released(&self) -> bool {
         self.value.strong_count() == 0
     }
@@ -269,7 +252,7 @@ impl std::cmp::PartialEq for GroupHandle {
     }
 }
 
-///
+/// Accessor item type for the group.
 ///
 ///
 pub struct GroupAccessor<'a> {
@@ -284,14 +267,14 @@ impl<'a> Deref for GroupAccessor<'a> {
     }
 }
 
+/// Mutable accessor item type for the group.
 ///
 ///
-///
-pub struct MutGroupAccessor<'a> {
+pub struct GroupAccessorMut<'a> {
     guard: MutexGuard<'a, GroupRaw>,
 }
 
-impl<'a> Deref for MutGroupAccessor<'a> {
+impl<'a> Deref for GroupAccessorMut<'a> {
     type Target = GroupRaw;
 
     fn deref(&self) -> &Self::Target {
@@ -299,7 +282,7 @@ impl<'a> Deref for MutGroupAccessor<'a> {
     }
 }
 
-impl<'a> DerefMut for MutGroupAccessor<'a> {
+impl<'a> DerefMut for GroupAccessorMut<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.guard.deref_mut()
     }
@@ -310,14 +293,24 @@ impl<'a> DerefMut for MutGroupAccessor<'a> {
 ///
 pub(crate) type GroupList = Vec<GroupHandle>;
 
+/// Create group which can include task items that can be executed simutaneously by `executor::Executor`.
 ///
-///
-///
+/// Given `name` must be not empty and validated. Group's name does not have to be unique.
+/// This function is only called from `GroupManager::create_group` method.
 #[must_use]
-pub(crate) fn create_group(groups: &mut GroupList, name: &str) -> Group {
-    let group = Group::new(name);
-    let group_handle = group.handle();
+pub(crate) fn create_group(groups: &mut GroupList, name: &str) -> Result<Group, TaskError> {
+    if name.is_empty() {
+        Err(TaskError::InvalidItemName)
+    } else {
+        static mut ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-    groups.push(group_handle);
-    group
+        let id = unsafe { ID_COUNTER.fetch_add(1, Ordering::Relaxed) };
+        let group = Group {
+            raw: Arc::new(Mutex::new(GroupRaw::new(name, id))),
+        };
+        let group_handle = group.handle();
+
+        groups.push(group_handle);
+        Ok(group)
+    }
 }

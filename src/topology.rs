@@ -143,15 +143,15 @@ impl Topology {
     }
 }
 
-///
+/// Alias of weaked synchronized group node.
 ///
 ///
 pub(crate) type GroupNodeHandle = Weak<Mutex<GroupNode>>;
 
+/// The node.
 ///
 ///
-///
-pub struct GroupNode {
+pub(crate) struct GroupNode {
     handle: group::GroupHandle,
     pub(crate) task_nodes: Vec<TaskNode>,
     pub(crate) remained_task_cnt: AtomicU32,
@@ -182,7 +182,7 @@ impl GroupNode {
 }
 
 #[derive(Clone)]
-pub struct TaskNode {
+pub(crate) struct TaskNode {
     pub(crate) handle: task::TaskHandle,
     pub(crate) group_node: Weak<Mutex<GroupNode>>,
 }

@@ -10,22 +10,23 @@ trait Functor {
     fn call(&self);
 }
 
-///
-///
-///
+/// Task type that stores lambda function closure.
 struct TaskClosure {
     f: Box<dyn Fn()>,
 }
 
 impl Functor for TaskClosure {
+    /// Call inside closure.
     fn call(&self) {
         (self.f)()
     }
 }
 
+/// Task type that stores valid item's pointer and valid method reference of item.
 ///
-///
-///
+/// This only can store `&T` const method, use `TaskMethodMut` if using mutable method of `&mut T`.
+/// Binded item's pointer should not be invalidated, or moved.
+/// Calling moved item's method may be occur undefined behavior by following additional logics.
 struct TaskMethod<T, F> {
     t: NonNull<T>,
     f: F,
@@ -35,11 +36,17 @@ impl<T, F> Functor for TaskMethod<T, F>
 where
     F: Fn(&T),
 {
+    // Call const method.
     fn call(&self) {
         (self.f)(unsafe { self.t.as_ref() })
     }
 }
 
+/// Task type that stores valid item's pointer and valid muable method reference of item.
+///
+/// This only can store `&mut T` mutable method, use `TaskMethod` if want to use immutable method of `&T`.
+/// Binded item's pointer should not be invalidated, or moved.
+/// Calling moved item's method may be occur undefined behavior by following additional logics.
 struct TaskMethodMut<T, F> {
     t: RefCell<NonNull<T>>,
     f: F,
@@ -49,6 +56,7 @@ impl<T, F> Functor for TaskMethodMut<T, F>
 where
     F: Fn(&mut T),
 {
+    // Call mutable method.
     fn call(&self) {
         (self.f)(unsafe { self.t.borrow_mut().as_mut() })
     }
@@ -63,24 +71,31 @@ pub struct TaskRaw {
 }
 
 impl TaskRaw {
+    /// Create task which is binding lambda closure.
     ///
-    ///
-    ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
     fn from_closure(name: &str, f: Box<dyn Fn()>) -> Self {
+        assert!(name.is_empty() == false, "Task name must not be empty.");
         Self {
             name: name.to_string(),
             func: Box::new(TaskClosure { f }),
         }
     }
 
+    /// Create task which is binding item's pointer and valid immutable method from the item.
     ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
+    /// Being binded item should not be invalidated, or moved state.
+    /// Otherwise, calling invalidated item's method will be undefined behavior.
     ///
-    ///
+    /// Calling method of task may not invalidate borrowing rule, but care about synchronization
+    /// and data race manually in the logic.
     fn from_method<T, F>(name: &'_ str, t: &T, f: F) -> Self
     where
         T: 'static,
         F: Fn(&T) + 'static,
     {
+        assert!(name.is_empty() == false, "Task name must not be empty.");
         let t = NonNull::new(t as *const _ as *mut T).unwrap();
 
         Self {
@@ -89,9 +104,14 @@ impl TaskRaw {
         }
     }
 
+    /// Create task which is binding item's pointer and valid mutable method from the item.
     ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
+    /// Being binded item should not be invalidated, or moved state.
+    /// Otherwise, calling invalidated item's immutable method will be undefined behavior.
     ///
-    ///
+    /// Calling method of task may not invalidate borrowing rule, but care about synchronization
+    /// and data race manually in the logic.
     fn from_method_mut<T, F>(name: &'_ str, t: &mut T, f: F) -> Self
     where
         T: 'static,
@@ -117,9 +137,9 @@ pub struct Task {
 }
 
 impl Task {
+    /// Create task which is binding lambda closure.
     ///
-    ///
-    ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
     pub(crate) fn from_closure(name: &str, f: Box<dyn Fn()>) -> Self {
         let raw = TaskRaw::from_closure(name, f);
         Self {
@@ -127,9 +147,14 @@ impl Task {
         }
     }
 
+    /// Create task which is binding item's pointer and valid immutable method from the item.
     ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
+    /// Being binded item should not be invalidated, or moved state.
+    /// Otherwise, calling invalidated item's method will be undefined behavior.
     ///
-    ///
+    /// Calling method of task may not invalidate borrowing rule, but care about synchronization
+    /// and data race manually in the logic.
     pub(crate) fn from_method<T, F>(name: &'_ str, t: &T, f: F) -> Self
     where
         T: 'static,
@@ -141,9 +166,14 @@ impl Task {
         }
     }
 
+    /// Create task which is binding item's pointer and valid mutable method from the item.
     ///
+    /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
+    /// Being binded item should not be invalidated, or moved state.
+    /// Otherwise, calling invalidated item's immutable method will be undefined behavior.
     ///
-    ///
+    /// Calling method of task may not invalidate borrowing rule, but care about synchronization
+    /// and data race manually in the logic.
     pub(crate) fn from_method_mut<T, F>(name: &'_ str, t: &mut T, f: F) -> Self
     where
         T: 'static,
@@ -160,9 +190,7 @@ impl Task {
         self.raw.lock().unwrap().name.clone()
     }
 
-    ///
-    ///
-    ///
+    /// Get new handle of the task.
     pub fn handle(&self) -> TaskHandle {
         TaskHandle {
             value: Arc::downgrade(&self.raw),
@@ -179,7 +207,7 @@ impl Task {
     }
 }
 
-///
+/// Handle type for the task in arbitrary group.
 ///
 ///
 #[derive(Clone)]
@@ -188,9 +216,9 @@ pub struct TaskHandle {
 }
 
 impl TaskHandle {
+    /// Access to the task execusively and return accessor `TaskAccssor` item.
     ///
-    ///
-    ///
+    /// If actual task item is invalidated, do nothing just return `None` value.
     pub fn value_as_ref<'a>(&'a self) -> Option<TaskAccessor<'a>> {
         let task = self.value.upgrade()?;
         let task_lock = task.lock();
@@ -203,15 +231,13 @@ impl TaskHandle {
         }
     }
 
-    ///
-    ///
-    ///
+    /// Check task is released or not.
     pub fn is_released(&self) -> bool {
         self.value.strong_count() == 0
     }
 }
 
-///
+/// Accessor item type for task.
 ///
 ///
 pub struct TaskAccessor<'a> {
