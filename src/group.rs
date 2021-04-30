@@ -49,6 +49,20 @@ impl GroupRaw {
     pub fn has_predecessors(&self) -> bool {
         self.chains.precede_group_list.is_empty()
     }
+
+    /// Check any group which has given id is exist in this group's chain list.
+    fn is_contains_id(&self, id: usize) -> bool {
+        let this_predeces = &self.chains.precede_group_list;
+        if this_predeces.iter().any(|x| x.id == id) {
+            return true;
+        }
+        let this_successors = &self.chains.success_group_list;
+        if this_successors.iter().any(|x| x.id == id) {
+            return true;
+        }
+
+        return false;
+    }
 }
 
 /// Stores chaining informations to other groups.
@@ -168,13 +182,35 @@ impl Group {
             Err(TaskError::InvalidChaining)
         } else {
             // Check given handle is already inserted into the lists (precede and success).
-            let other_id = handle.id;
-            let this_predeces = &guard.chains.precede_group_list;
-            if this_predeces.iter().any(|x| x.id == other_id) {
+            if guard.is_contains_id(handle.id) {
                 return Err(TaskError::InvalidChaining);
             }
-            let this_successors = &guard.chains.success_group_list;
-            if this_successors.iter().any(|x| x.id == other_id) {
+            // Check other is still validated.
+            let mut other_handle = handle.clone();
+            let mut other_group = match other_handle.value_as_mut() {
+                None => return Err(TaskError::InvalidGroupHandle),
+                Some(accessor) => accessor,
+            };
+
+            // Make chain relation.
+            guard.chains.success_group_list.push(handle);
+            other_group.chains.precede_group_list.push(this_handle);
+            Ok(())
+        }
+    }
+
+    /// Let this group succeeds given other group.
+    ///
+    /// If function is successful, this group will follow after other group.
+    pub fn succeed(&mut self, handle: GroupHandle) -> Result<(), TaskError> {
+        let this_handle = self.handle();
+        let mut guard = self.raw.lock().unwrap();
+        if guard.id == handle.id {
+            // Same group can not be chain each other.
+            Err(TaskError::InvalidChaining)
+        } else {
+            // Check given handle is already inserted into the lists (precede and success).
+            if guard.is_contains_id(handle.id) {
                 return Err(TaskError::InvalidChaining);
             }
             // this_predeces and this_successors will not be used anymore.
@@ -186,8 +222,8 @@ impl Group {
             };
 
             // Make chain relation.
-            guard.chains.success_group_list.push(handle);
-            other_group.chains.precede_group_list.push(this_handle);
+            guard.chains.precede_group_list.push(handle);
+            other_group.chains.success_group_list.push(this_handle);
             Ok(())
         }
     }
