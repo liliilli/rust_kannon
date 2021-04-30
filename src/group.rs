@@ -42,21 +42,26 @@ impl GroupRaw {
 
     /// Check group has successor groups.
     pub fn has_successors(&self) -> bool {
-        self.chains.success_group_list.is_empty()
+        self.chains.success_groups.is_empty()
     }
 
     /// Check group has predecessor groups.
     pub fn has_predecessors(&self) -> bool {
-        self.chains.precede_group_list.is_empty()
+        self.chains.precede_groups.is_empty()
+    }
+
+    /// Remove invalidated task from list and rearrange them.
+    pub(crate) fn rearrange_tasks(&mut self) {
+        self.tasks.retain(|t| !t.is_released());
     }
 
     /// Check any group which has given id is exist in this group's chain list.
     fn is_contains_id(&self, id: usize) -> bool {
-        let this_predeces = &self.chains.precede_group_list;
+        let this_predeces = &self.chains.precede_groups;
         if this_predeces.iter().any(|x| x.id == id) {
             return true;
         }
-        let this_successors = &self.chains.success_group_list;
+        let this_successors = &self.chains.success_groups;
         if this_successors.iter().any(|x| x.id == id) {
             return true;
         }
@@ -69,9 +74,9 @@ impl GroupRaw {
 #[derive(Default)]
 pub(crate) struct GroupChains {
     ///
-    pub(crate) precede_group_list: Vec<GroupHandle>,
+    pub(crate) precede_groups: Vec<GroupHandle>,
     ///
-    pub(crate) success_group_list: Vec<GroupHandle>,
+    pub(crate) success_groups: Vec<GroupHandle>,
 }
 
 /// Task group unit.
@@ -193,8 +198,8 @@ impl Group {
             };
 
             // Make chain relation.
-            guard.chains.success_group_list.push(handle);
-            other_group.chains.precede_group_list.push(this_handle);
+            guard.chains.success_groups.push(handle);
+            other_group.chains.precede_groups.push(this_handle);
             Ok(())
         }
     }
@@ -222,8 +227,8 @@ impl Group {
             };
 
             // Make chain relation.
-            guard.chains.precede_group_list.push(handle);
-            other_group.chains.success_group_list.push(this_handle);
+            guard.chains.precede_groups.push(handle);
+            other_group.chains.success_groups.push(this_handle);
             Ok(())
         }
     }

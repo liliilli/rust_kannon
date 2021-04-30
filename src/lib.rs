@@ -63,11 +63,38 @@ impl Manager {
         true
     }
 
-    ///
-    ///
-    ///
-    pub fn cleanup_all(&mut self) {
-        todo!("Not yet implemented");
+    /// Remove invalidated group from list and rerrange them.
+    pub fn rearrange_groups(&mut self) {
+        // Get removal candidate groups.
+        let (released_groups, mut remained_groups): (Vec<GroupHandle>, Vec<GroupHandle>) = self
+            .groups
+            .iter()
+            .map(|g| g.clone())
+            .partition(|g| g.is_released());
+
+        // Remove all chains from remained_groups.
+        let released_group_ids: Vec<_> = released_groups.iter().map(|g| g.id()).collect();
+        remained_groups.iter_mut().for_each(|g| {
+            let chains = &mut g.value_as_mut().unwrap().chains;
+            chains
+                .precede_groups
+                .retain(|h| !released_group_ids.iter().any(|&i| i == h.id()));
+            chains
+                .success_groups
+                .retain(|h| !released_group_ids.iter().any(|&i| i == h.id()));
+        });
+
+        // End.
+        self.groups = remained_groups;
+    }
+
+    /// Remove invalidated tasks from list of valid groups.
+    pub fn rearrange_tasks(&mut self) {
+        for group in &mut self.groups {
+            if let Some(mut group) = group.value_as_mut() {
+                group.rearrange_tasks();
+            }
+        }
     }
 }
 

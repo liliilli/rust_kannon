@@ -90,7 +90,7 @@ impl Topology {
                     .value_as_ref()
                     .unwrap()
                     .chains
-                    .success_group_list;
+                    .success_groups;
 
                 // Find successor nodes from actual group's successors.
                 let mut successor_nodes: Vec<_> = group_nodes
