@@ -20,6 +20,7 @@ crate-type = ["lib"]
 [dependencies]
 thiserror = "1.0.24"
 crossbeam-utils = "0.8.3"
+crossbeam-deque = "0.8.0"
 
 [profile.dev]
 opt-level = 0
