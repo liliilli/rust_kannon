@@ -102,7 +102,11 @@ impl Group {
     ///
     /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
     #[must_use]
-    pub fn create_task(&mut self, name: &str, f: impl Fn() + 'static) -> Result<Task, TaskError> {
+    pub fn create_task(
+        &mut self,
+        name: &str,
+        f: impl Fn() + Sync + Send + 'static,
+    ) -> Result<Task, TaskError> {
         if name.is_empty() {
             Err(TaskError::InvalidItemName)
         } else {
@@ -129,7 +133,7 @@ impl Group {
     pub fn create_task_method<T, F>(&mut self, name: &str, t: &T, f: F) -> Result<Task, TaskError>
     where
         T: 'static,
-        F: Fn(&T) + 'static,
+        F: Fn(&T) + Sync + Send + 'static,
     {
         if name.is_empty() {
             Err(TaskError::InvalidItemName)
@@ -161,7 +165,7 @@ impl Group {
     ) -> Result<Task, TaskError>
     where
         T: 'static,
-        F: Fn(&mut T) + 'static,
+        F: Fn(&mut T) + Sync + Send + 'static,
     {
         if name.is_empty() {
             Err(TaskError::InvalidItemName)

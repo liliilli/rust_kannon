@@ -5,14 +5,14 @@ use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 /// Internal trait
-trait Functor {
+trait Functor: Sync + Send {
     /// Call binded function.
     fn call(&self);
 }
 
 /// Task type that stores lambda function closure.
 struct TaskClosure {
-    f: Box<dyn Fn()>,
+    f: Box<dyn Fn() + Sync + Send>,
 }
 
 impl Functor for TaskClosure {
@@ -34,13 +34,16 @@ struct TaskMethod<T, F> {
 
 impl<T, F> Functor for TaskMethod<T, F>
 where
-    F: Fn(&T),
+    F: Fn(&T) + Sync + Send,
 {
     // Call const method.
     fn call(&self) {
         (self.f)(unsafe { self.t.as_ref() })
     }
 }
+
+unsafe impl<T, F> Sync for TaskMethod<T, F> where F: Fn(&T) + Sync + Send {}
+unsafe impl<T, F> Send for TaskMethod<T, F> where F: Fn(&T) + Sync + Send {}
 
 /// Task type that stores valid item's pointer and valid muable method reference of item.
 ///
@@ -54,13 +57,16 @@ struct TaskMethodMut<T, F> {
 
 impl<T, F> Functor for TaskMethodMut<T, F>
 where
-    F: Fn(&mut T),
+    F: Fn(&mut T) + Sync + Send,
 {
     // Call mutable method.
     fn call(&self) {
         (self.f)(unsafe { self.t.borrow_mut().as_mut() })
     }
 }
+
+unsafe impl<T, F> Sync for TaskMethodMut<T, F> where F: Fn(&mut T) + Sync + Send {}
+unsafe impl<T, F> Send for TaskMethodMut<T, F> where F: Fn(&mut T) + Sync + Send {}
 
 /// Raw type for `Task` instance.
 ///
@@ -74,7 +80,7 @@ impl TaskRaw {
     /// Create task which is binding lambda closure.
     ///
     /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
-    fn from_closure(name: &str, f: Box<dyn Fn()>) -> Self {
+    fn from_closure(name: &str, f: Box<dyn Fn() + Sync + Send>) -> Self {
         assert!(name.is_empty() == false, "Task name must not be empty.");
         Self {
             name: name.to_string(),
@@ -93,7 +99,7 @@ impl TaskRaw {
     fn from_method<T, F>(name: &'_ str, t: &T, f: F) -> Self
     where
         T: 'static,
-        F: Fn(&T) + 'static,
+        F: Fn(&T) + Sync + Send + 'static,
     {
         assert!(name.is_empty() == false, "Task name must not be empty.");
         let t = NonNull::new(t as *const _ as *mut T).unwrap();
@@ -115,7 +121,7 @@ impl TaskRaw {
     fn from_method_mut<T, F>(name: &'_ str, t: &mut T, f: F) -> Self
     where
         T: 'static,
-        F: Fn(&mut T) + 'static,
+        F: Fn(&mut T) + Sync + Send + 'static,
     {
         let t = RefCell::new(NonNull::new(t as *mut T).unwrap());
 
@@ -140,7 +146,7 @@ impl Task {
     /// Create task which is binding lambda closure.
     ///
     /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
-    pub(crate) fn from_closure(name: &str, f: Box<dyn Fn()>) -> Self {
+    pub(crate) fn from_closure(name: &str, f: Box<dyn Fn() + Sync + Send>) -> Self {
         let raw = TaskRaw::from_closure(name, f);
         Self {
             raw: Arc::new(Mutex::new(raw)),
@@ -158,7 +164,7 @@ impl Task {
     pub(crate) fn from_method<T, F>(name: &'_ str, t: &T, f: F) -> Self
     where
         T: 'static,
-        F: Fn(&T) + 'static,
+        F: Fn(&T) + Sync + Send + 'static,
     {
         let raw = TaskRaw::from_method(name, t, f);
         Self {
@@ -177,7 +183,7 @@ impl Task {
     pub(crate) fn from_method_mut<T, F>(name: &'_ str, t: &mut T, f: F) -> Self
     where
         T: 'static,
-        F: Fn(&mut T) + 'static,
+        F: Fn(&mut T) + Sync + Send + 'static,
     {
         let raw = TaskRaw::from_method_mut(name, t, f);
         Self {
