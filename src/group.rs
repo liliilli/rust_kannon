@@ -16,6 +16,8 @@ pub struct GroupRaw {
     name: String,
     /// Unique id of the group.
     id: usize,
+    /// Empty task for processing next group in topology.
+    empty_task: Task,
     /// Local task handle list for calling tasks in batch.
     pub(crate) tasks: Vec<TaskHandle>,
     /// Stores chaining information to other groups.
@@ -35,6 +37,7 @@ impl GroupRaw {
         Self {
             name: name.to_string(),
             id,
+            empty_task: Task::empty_task(),
             tasks: vec![],
             chains: GroupChains::default(),
         }
@@ -53,6 +56,11 @@ impl GroupRaw {
     /// Remove invalidated task from list and rearrange them.
     pub(crate) fn rearrange_tasks(&mut self) {
         self.tasks.retain(|t| !t.is_released());
+    }
+
+    /// Get the handle of empty task.
+    pub(crate) fn handle_of_empty_task(&self) -> TaskHandle {
+        self.empty_task.handle()
     }
 
     /// Check any group which has given id is exist in this group's chain list.

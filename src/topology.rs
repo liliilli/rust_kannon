@@ -46,6 +46,23 @@ impl Topology {
                         }),
                 }
 
+                // If count is 0, we have to insert empty node of local group to proceed to next
+                // group.
+                if count == 0 {
+                    // Criticl section
+                    match x.value_as_ref() {
+                        None => return,
+                        Some(accessor) => {
+                            let task_node_handle = accessor.handle_of_empty_task();
+                            let group_node_handle = Arc::downgrade(&group_node);
+                            let node = TaskNode::new(task_node_handle, group_node_handle);
+                            // Insert node into list.
+                            nodes.push(node);
+                            count += 1;
+                        }
+                    }
+                }
+
                 (nodes, count)
             };
 

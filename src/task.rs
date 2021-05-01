@@ -73,10 +73,18 @@ unsafe impl<T, F> Send for TaskMethodMut<T, F> where F: Fn(&mut T) + Sync + Send
 /// Stores actual informations for task.
 pub struct TaskRaw {
     pub name: String,
-    func: Box<dyn Functor>,
+    func: Option<Box<dyn Functor>>,
 }
 
 impl TaskRaw {
+    /// Create intentional empty task which does nothing.
+    fn empty_task() -> Self {
+        Self {
+            name: "_".into(),
+            func: None,
+        }
+    }
+
     /// Create task which is binding lambda closure.
     ///
     /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
@@ -84,7 +92,7 @@ impl TaskRaw {
         assert!(name.is_empty() == false, "Task name must not be empty.");
         Self {
             name: name.to_string(),
-            func: Box::new(TaskClosure { f }),
+            func: Some(Box::new(TaskClosure { f })),
         }
     }
 
@@ -106,7 +114,7 @@ impl TaskRaw {
 
         Self {
             name: name.to_string(),
-            func: Box::new(TaskMethod { t, f }),
+            func: Some(Box::new(TaskMethod { t, f })),
         }
     }
 
@@ -127,13 +135,15 @@ impl TaskRaw {
 
         Self {
             name: name.to_string(),
-            func: Box::new(TaskMethodMut { t, f }),
+            func: Some(Box::new(TaskMethodMut { t, f })),
         }
     }
 
     /// Call binded function (closure, or methods).
     pub(crate) fn call(&self) {
-        self.func.call()
+        if let Some(func) = &self.func {
+            func.call();
+        }
     }
 }
 
@@ -143,6 +153,14 @@ pub struct Task {
 }
 
 impl Task {
+    /// Create intentional empty task which does nothing.
+    pub(crate) fn empty_task() -> Self {
+        let raw = TaskRaw::empty_task();
+        Self {
+            raw: Arc::new(Mutex::new(raw)),
+        }
+    }
+
     /// Create task which is binding lambda closure.
     ///
     /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
