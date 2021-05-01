@@ -1,20 +1,21 @@
 #![allow(dead_code)]
 #![feature(allocator_api)]
+#![feature(available_concurrency)]
 mod error;
 mod executor;
 mod group;
 mod task;
 mod topology;
+mod worker;
 
 use error::TaskError;
 use group::*;
-use topology::Topology;
 
-struct Manager {
+struct GroupManager {
     groups: GroupList,
 }
 
-impl Manager {
+impl GroupManager {
     ///
     ///
     ///
@@ -37,9 +38,11 @@ impl Manager {
         create_group(&mut self.groups, name)
     }
 
-    /// Create new topology which can be executable tasks or return failure value.
-    pub fn create_topology(&self) -> Result<Topology, TaskError> {
-        Topology::try_from(&self.groups)
+    ///
+    ///
+    ///
+    pub fn groups(&self) -> &GroupList {
+        &self.groups
     }
 
     ///
@@ -68,7 +71,7 @@ impl Manager {
         // Get removal candidate groups.
         let (released_groups, mut remained_groups): (Vec<GroupHandle>, Vec<GroupHandle>) = self
             .groups
-            .iter()
+            .iter() // Could not use into_iter because internal type does not implement Copy.
             .map(|g| g.clone())
             .partition(|g| g.is_released());
 
@@ -124,8 +127,10 @@ mod tests {
     fn simple_test() {
         use crate::*;
         use std::sync::{Arc, Mutex};
+        use topology::Topology;
+        use worker::{SequentialWorker, ThreadingWorker};
 
-        let mut manager = Manager::new();
+        let mut manager = GroupManager::new();
         let mut group = manager.create_group("Group name").unwrap();
         let _task = group.create_task("Task1", || {
             println!("Hello world! from Task1 of group1.");
@@ -174,22 +179,24 @@ mod tests {
             group3.create_task_method_mut("Task1", &mut test_item, TestStruct::print_mutable);
 
         // Create topology and execute it.
-        match manager.create_topology() {
+        match Topology::try_from(manager.groups()) {
             Err(_) => return,
             Ok(topology) => {
                 let mut executor = executor::Executor::new();
                 executor.set_topology(topology);
+                executor.exchange_worker(Box::new(ThreadingWorker::try_new(16).unwrap()));
                 executor.execute().unwrap();
                 println!("\n\n");
             }
         }
 
         // Create topology and execute it.
-        match manager.create_topology() {
+        match Topology::try_from(manager.groups()) {
             Err(_) => return,
             Ok(topology) => {
                 let mut executor = executor::Executor::new();
                 executor.set_topology(topology);
+                executor.exchange_worker(Box::new(SequentialWorker::new()));
                 executor.execute().unwrap();
                 println!("\n\n");
             }

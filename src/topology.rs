@@ -12,16 +12,19 @@ use super::task;
 ///
 pub struct Topology {
     group_nodes: Vec<Arc<Mutex<GroupNode>>>,
+    pub(crate) task_count: usize,
     pub(crate) root_groups: Vec<GroupNodeHandle>,
 }
 
 impl Topology {
-    /// Create group node list from the input, but not chained list.
+    /// Create group node list and total count of tasks to process from the input, but not chained list.
     ///
     /// Internal function.
     /// Called from `Self::try_from`.
-    fn create_group_nodes(group_list: &group::GroupList) -> Vec<Arc<Mutex<GroupNode>>> {
+    fn create_group_nodes(group_list: &group::GroupList) -> (Vec<Arc<Mutex<GroupNode>>>, usize) {
         let mut group_nodes = vec![];
+        let mut total_task_count = 0usize;
+
         group_list.iter().for_each(|x| {
             // Setup local nodes.
             let group_node = Arc::new(Mutex::new(GroupNode::new_empty(x.clone())));
@@ -49,7 +52,7 @@ impl Topology {
                 // If count is 0, we have to insert empty node of local group to proceed to next
                 // group.
                 if count == 0 {
-                    // Criticl section
+                    // Critical section
                     match x.value_as_ref() {
                         None => return,
                         Some(accessor) => {
@@ -74,13 +77,14 @@ impl Topology {
                 group_node_ref
                     .remained_task_cnt
                     .store(task_count, Ordering::Relaxed);
+                total_task_count += task_count as usize;
             }
 
             // Insert group into list.
             group_nodes.push(group_node);
         });
 
-        group_nodes
+        (group_nodes, total_task_count)
     }
 
     /// Try to create topology instance from group list.
@@ -96,7 +100,7 @@ impl Topology {
         }
 
         // Make topology item and fill it.
-        let group_nodes = Self::create_group_nodes(groups);
+        let (group_nodes, task_count) = Self::create_group_nodes(groups);
 
         // Make chain to each groups.
         for group_node in group_nodes.iter() {
@@ -155,6 +159,7 @@ impl Topology {
 
         Ok(Self {
             group_nodes,
+            task_count,
             root_groups: root_group_nodes,
         })
     }
