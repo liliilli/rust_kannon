@@ -125,19 +125,24 @@ mod tests {
 
     #[test]
     fn simple_test() {
-        use crate::*;
-        use executor::Executor;
+        use crate::{
+            executor::Executor, topology::Topology, worker::ThreadingWorker, GroupManager,
+        };
         use std::sync::{Arc, Mutex};
-        use topology::Topology;
-        use worker::{SequentialWorker, ThreadingWorker};
 
         let mut manager = GroupManager::new();
+        let mut executor = Executor::new();
+        executor
+            .exchange_worker(Box::new(ThreadingWorker::try_new_automatic().unwrap()))
+            .unwrap();
+        let mut topology = Topology::new();
+
         let mut group = manager.create_group("Group name").unwrap();
         let _task = group.create_task("Task1", || {
             println!("Hello world! from Task1 of group1.");
         });
 
-        let from_outside: Arc<Mutex<i32>> = Arc::new(Mutex::new(0));
+        let from_outside = Arc::new(Mutex::new(0i32));
         let mut group2 = manager.create_group("Group Name2").unwrap();
 
         let _task21 = {
@@ -175,23 +180,23 @@ mod tests {
         let mut test_item = TestStruct {
             phrase: "Hello from struct".to_string(),
         };
-        let _task32 = group3.create_task_method("Task1", &test_item, TestStruct::print_something);
-        let _task33 =
+        let _t32 = group3.create_task_method("Task1", &test_item, TestStruct::print_something);
+        let _t33 =
             group3.create_task_method_mut("Task1", &mut test_item, TestStruct::print_mutable);
-
-        // Create topology and execute it.
-        let mut executor = Executor::new();
-        executor
-            .exchange_worker(Box::new(ThreadingWorker::try_new(16).unwrap()))
-            .unwrap();
 
         for i in 0..100 {
             println!("Trial 1 {}", i);
-            executor
-                .exchange_topology(Topology::try_from(manager.groups()).unwrap())
-                .unwrap();
+            // Rearrange secion
+            manager.rearrange_groups();
+            manager.rearrange_tasks();
+            topology.rearrange_from(manager.groups());
+
+            // Execution section
+            executor.exchange_topology(topology).unwrap();
             executor.execute().unwrap();
             executor.wait_finish().unwrap();
+
+            topology = executor.detach_topology().unwrap().unwrap();
             println!("\n");
         }
     }
