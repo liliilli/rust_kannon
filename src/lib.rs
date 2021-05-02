@@ -113,7 +113,7 @@ mod tests {
 
     impl TestStruct {
         fn print_mutable(&mut self) {
-            self.phrase += "Additional string!";
+            self.phrase += "!";
         }
     }
 
@@ -126,6 +126,7 @@ mod tests {
     #[test]
     fn simple_test() {
         use crate::*;
+        use executor::Executor;
         use std::sync::{Arc, Mutex};
         use topology::Topology;
         use worker::{SequentialWorker, ThreadingWorker};
@@ -179,27 +180,19 @@ mod tests {
             group3.create_task_method_mut("Task1", &mut test_item, TestStruct::print_mutable);
 
         // Create topology and execute it.
-        match Topology::try_from(manager.groups()) {
-            Err(_) => return,
-            Ok(topology) => {
-                let mut executor = executor::Executor::new();
-                executor.set_topology(topology);
-                executor.exchange_worker(Box::new(ThreadingWorker::try_new(16).unwrap()));
-                executor.execute().unwrap();
-                println!("\n\n");
-            }
-        }
+        let mut executor = Executor::new();
+        executor
+            .exchange_worker(Box::new(ThreadingWorker::try_new(16).unwrap()))
+            .unwrap();
 
-        // Create topology and execute it.
-        match Topology::try_from(manager.groups()) {
-            Err(_) => return,
-            Ok(topology) => {
-                let mut executor = executor::Executor::new();
-                executor.set_topology(topology);
-                executor.exchange_worker(Box::new(SequentialWorker::new()));
-                executor.execute().unwrap();
-                println!("\n\n");
-            }
+        for i in 0..100 {
+            println!("Trial 1 {}", i);
+            executor
+                .exchange_topology(Topology::try_from(manager.groups()).unwrap())
+                .unwrap();
+            executor.execute().unwrap();
+            executor.wait_finish().unwrap();
+            println!("\n");
         }
     }
 }

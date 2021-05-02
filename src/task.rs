@@ -11,16 +11,22 @@ trait Functor: Sync + Send {
 }
 
 /// Task type that stores lambda function closure.
-struct TaskClosure {
-    f: Box<dyn Fn() + Sync + Send>,
+struct TaskClosure<F> {
+    f: F,
 }
 
-impl Functor for TaskClosure {
+impl<F> Functor for TaskClosure<F>
+where
+    F: Fn() + Sync + Send,
+{
     /// Call inside closure.
     fn call(&self) {
         (self.f)()
     }
 }
+
+unsafe impl<F> Sync for TaskClosure<F> where F: Fn() + Sync + Send {}
+unsafe impl<F> Send for TaskClosure<F> where F: Fn() + Sync + Send {}
 
 /// Task type that stores valid item's pointer and valid method reference of item.
 ///
@@ -77,6 +83,13 @@ pub struct TaskRaw {
 }
 
 impl TaskRaw {
+    /// Call binded function (closure, or methods).
+    pub(crate) fn call(&self) {
+        if let Some(func) = &self.func {
+            func.call();
+        }
+    }
+
     /// Create intentional empty task which does nothing.
     fn empty_task() -> Self {
         Self {
@@ -88,7 +101,10 @@ impl TaskRaw {
     /// Create task which is binding lambda closure.
     ///
     /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
-    fn from_closure(name: &str, f: Box<dyn Fn() + Sync + Send>) -> Self {
+    fn from_closure<F>(name: &str, f: F) -> Self
+    where
+        F: Fn() + Sync + Send + 'static,
+    {
         assert!(name.is_empty() == false, "Task name must not be empty.");
         Self {
             name: name.to_string(),
@@ -138,13 +154,6 @@ impl TaskRaw {
             func: Some(Box::new(TaskMethodMut { t, f })),
         }
     }
-
-    /// Call binded function (closure, or methods).
-    pub(crate) fn call(&self) {
-        if let Some(func) = &self.func {
-            func.call();
-        }
-    }
 }
 
 /// Task instance which callable in any thread context in the system.
@@ -153,6 +162,18 @@ pub struct Task {
 }
 
 impl Task {
+    /// Get the name of the task.
+    pub fn name(&self) -> String {
+        self.raw.lock().unwrap().name.clone()
+    }
+
+    /// Get new handle of the task.
+    pub fn handle(&self) -> TaskHandle {
+        TaskHandle {
+            value: Arc::downgrade(&self.raw),
+        }
+    }
+
     /// Create intentional empty task which does nothing.
     pub(crate) fn empty_task() -> Self {
         let raw = TaskRaw::empty_task();
@@ -164,7 +185,10 @@ impl Task {
     /// Create task which is binding lambda closure.
     ///
     /// Given name must be valid and not empty. It's ok to be duplicated with other task's name.
-    pub(crate) fn from_closure(name: &str, f: Box<dyn Fn() + Sync + Send>) -> Self {
+    pub(crate) fn from_closure<F>(name: &str, f: F) -> Self
+    where
+        F: Fn() + Sync + Send + 'static,
+    {
         let raw = TaskRaw::from_closure(name, f);
         Self {
             raw: Arc::new(Mutex::new(raw)),
@@ -209,18 +233,6 @@ impl Task {
         }
     }
 
-    /// Get the name of the task.
-    pub fn name(&self) -> String {
-        self.raw.lock().unwrap().name.clone()
-    }
-
-    /// Get new handle of the task.
-    pub fn handle(&self) -> TaskHandle {
-        TaskHandle {
-            value: Arc::downgrade(&self.raw),
-        }
-    }
-
     /// Call task's function.
     ///
     /// # Notes
@@ -232,8 +244,6 @@ impl Task {
 }
 
 /// Handle type for the task in arbitrary group.
-///
-///
 #[derive(Clone)]
 pub struct TaskHandle {
     value: Weak<Mutex<TaskRaw>>,
@@ -262,8 +272,6 @@ impl TaskHandle {
 }
 
 /// Accessor item type for task.
-///
-///
 pub struct TaskAccessor<'a> {
     task_guard: MutexGuard<'a, TaskRaw>,
 }

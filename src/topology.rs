@@ -8,8 +8,6 @@ use super::group;
 use super::task;
 
 /// Represents executable task group unit.
-///
-///
 pub struct Topology {
     group_nodes: Vec<Arc<Mutex<GroupNode>>>,
     pub(crate) task_count: usize,
@@ -25,9 +23,9 @@ impl Topology {
         let mut group_nodes = vec![];
         let mut total_task_count = 0usize;
 
-        group_list.iter().for_each(|x| {
+        for x in group_list {
             // Setup local nodes.
-            let group_node = Arc::new(Mutex::new(GroupNode::new_empty(x.clone())));
+            let group_node = Arc::new(Mutex::new(GroupNode::new(x.clone())));
 
             // Make group's local task nodes.
             let (task_nodes, task_count) = {
@@ -35,27 +33,18 @@ impl Topology {
                 let mut count = 0u32;
                 match x.value_as_ref() {
                     // Critical section
-                    None => return,
-                    Some(accessor) => accessor
-                        .tasks
-                        .iter()
-                        .filter(|&task| task.is_released() == false)
-                        .for_each(|task| {
+                    None => continue,
+                    Some(accessor) => {
+                        for task in accessor.tasks.iter().filter(|&task| !task.is_released()) {
                             let group_node_handle = Arc::downgrade(&group_node);
                             let node = TaskNode::new(task.clone(), group_node_handle);
                             // Insert node into list.
                             nodes.push(node);
                             count += 1;
-                        }),
-                }
+                        }
 
-                // If count is 0, we have to insert empty node of local group to proceed to next
-                // group.
-                if count == 0 {
-                    // Critical section
-                    match x.value_as_ref() {
-                        None => return,
-                        Some(accessor) => {
+                        // If count is 0, we have to insert empty node of local group to proceed to next group.
+                        if count == 0 {
                             let task_node_handle = accessor.handle_of_empty_task();
                             let group_node_handle = Arc::downgrade(&group_node);
                             let node = TaskNode::new(task_node_handle, group_node_handle);
@@ -82,7 +71,7 @@ impl Topology {
 
             // Insert group into list.
             group_nodes.push(group_node);
-        });
+        }
 
         (group_nodes, total_task_count)
     }
@@ -103,8 +92,8 @@ impl Topology {
         let (group_nodes, task_count) = Self::create_group_nodes(groups);
 
         // Make chain to each groups.
-        for group_node in group_nodes.iter() {
-            let successor_nodes = {
+        for group_node in &group_nodes {
+            let successor_nodes: Vec<_> = {
                 let group_node = group_node.lock().unwrap();
                 let successors = &group_node
                     .handle
@@ -114,7 +103,7 @@ impl Topology {
                     .success_groups;
 
                 // Find successor nodes from actual group's successors.
-                let mut successor_nodes: Vec<_> = group_nodes
+                group_nodes
                     .iter()
                     .filter(|&g| match g.try_lock() {
                         Err(_) => false,
@@ -122,24 +111,15 @@ impl Topology {
                             let g_id = g.handle.id();
                             successors
                                 .iter()
-                                .filter(|&s| s.is_released() == false)
+                                .filter(|&s| !s.is_released())
                                 .any(|s| s.id() == g_id)
                         }
                     })
-                    .collect();
-                successor_nodes.iter_mut().for_each(|&mut s| {
-                    s.lock()
-                        .unwrap()
-                        .remained_predecessor_cnt
-                        .fetch_add(1, Ordering::Relaxed);
-                });
-
-                // Downgrade successors.
-                let mut weaks = vec![];
-                for node in successor_nodes.into_iter() {
-                    weaks.push(Arc::downgrade(node));
-                }
-                weaks
+                    .map(|s| {
+                        s.lock().unwrap().increase_predecessor_count();
+                        Arc::downgrade(s)
+                    })
+                    .collect()
             };
 
             // Intended cloning for avoiding borrow rule violation.
@@ -148,44 +128,35 @@ impl Topology {
         }
 
         // Make root group node list which items does not have any predeceed group nodes.
-        let root_group_nodes = {
-            let mut nodes = vec![];
-            group_nodes
-                .iter()
-                .filter(|&g| g.lock().unwrap().is_ready())
-                .for_each(|g| nodes.push(Arc::downgrade(g)));
-            nodes
-        };
+        let root_groups: Vec<_> = group_nodes
+            .iter()
+            .filter(|&g| g.lock().unwrap().is_ready())
+            .map(|g| Arc::downgrade(g))
+            .collect();
 
         Ok(Self {
             group_nodes,
             task_count,
-            root_groups: root_group_nodes,
+            root_groups,
         })
     }
 }
 
 /// Alias of weaked synchronized group node.
-///
-///
 pub(crate) type GroupNodeHandle = Weak<Mutex<GroupNode>>;
 
-/// The node.
-///
-///
+/// The group node.
 pub(crate) struct GroupNode {
     handle: group::GroupHandle,
     pub(crate) task_nodes: Vec<TaskNode>,
-    pub(crate) remained_task_cnt: AtomicU32,
+    remained_task_cnt: AtomicU32,
     pub(crate) successor_nodes: Vec<GroupNodeHandle>,
-    pub(crate) remained_predecessor_cnt: AtomicU32,
+    remained_predecessor_cnt: AtomicU32,
 }
 
 impl GroupNode {
-    ///
-    ///
-    ///
-    fn new_empty(handle: group::GroupHandle) -> Self {
+    /// Create new group node.
+    fn new(handle: group::GroupHandle) -> Self {
         Self {
             handle,
             task_nodes: vec![],
@@ -196,10 +167,29 @@ impl GroupNode {
     }
 
     /// Check group node is ready to being processed.
-    ///
-    ///
-    pub fn is_ready(&self) -> bool {
+    fn is_ready(&self) -> bool {
         self.remained_predecessor_cnt.load(Ordering::Acquire) == 0
+    }
+
+    /// Increase remained predecessor count by 1 and return last value.
+    fn increase_predecessor_count(&self) -> u32 {
+        self.remained_predecessor_cnt.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Decrease remained predecessor count by 1 and return last value.
+    pub(super) fn decrease_predecessor_count(&self) -> u32 {
+        self.remained_predecessor_cnt
+            .fetch_sub(1, Ordering::Release)
+    }
+
+    /// Get remained task count.
+    pub(super) fn task_count(&self) -> u32 {
+        self.remained_task_cnt.load(Ordering::Relaxed)
+    }
+
+    /// Decrease remained task count by 1 and return last value.
+    pub(super) fn decrease_task_count(&self) -> u32 {
+        self.remained_task_cnt.fetch_sub(1, Ordering::Relaxed)
     }
 }
 
@@ -210,9 +200,7 @@ pub(crate) struct TaskNode {
 }
 
 impl TaskNode {
-    ///
-    ///
-    ///
+    /// Create new task node.
     fn new(handle: task::TaskHandle, group_node: GroupNodeHandle) -> Self {
         Self { handle, group_node }
     }

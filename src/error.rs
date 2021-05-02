@@ -14,4 +14,10 @@ pub enum TaskError {
     InvalidItemName,
     #[error("Validated group which can execute task is not exist.")]
     NoValidatedGroups,
+    #[error("Worker is not set in executor.")]
+    EmptyWorker,
+    #[error("Executor is already being executed.")]
+    AlreadyExecuted,
+    #[error("Executor is idle.")]
+    AlreadyIdle,
 }

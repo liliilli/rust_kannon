@@ -58,7 +58,7 @@ impl Worker for SequentialWorker {
         for root_group in &topology.root_groups {
             let root_group = root_group.upgrade().unwrap();
 
-            for task in root_group.lock().unwrap().task_nodes.iter() {
+            for task in &root_group.lock().unwrap().task_nodes {
                 self.tx.send(task.clone()).unwrap();
             }
         }
@@ -73,8 +73,6 @@ impl Worker for SequentialWorker {
         loop {
             let task = self.rx.try_recv();
             if task.is_err() {
-                // Check hitotu karano item wo irete, karano guru-pudemo tsugihe susumeru youni
-                // suru.
                 assert!(
                     self.task_count.load(Ordering::Relaxed) == 0,
                     "Topology's total task count must be matched."
@@ -92,7 +90,7 @@ impl Worker for SequentialWorker {
             self.task_count.fetch_sub(1, Ordering::Relaxed);
             let group = task.group_node.upgrade().unwrap();
             let group_lock = group.lock().unwrap();
-            let last_count = group_lock.remained_task_cnt.fetch_sub(1, Ordering::Relaxed);
+            let last_count = group_lock.decrease_task_count();
 
             // If last count is 1, we have to decrease counter of successing all groups as a signal.
             if last_count == 1 {
@@ -101,9 +99,7 @@ impl Worker for SequentialWorker {
                     let successor = successor.lock().unwrap();
 
                     // If decreasing group is ready, insert new tasks to tx.
-                    let last_count = successor
-                        .remained_predecessor_cnt
-                        .fetch_sub(1, Ordering::Release);
+                    let last_count = successor.decrease_predecessor_count();
                     if last_count == 1 {
                         for task in &successor.task_nodes {
                             self.tx.send(task.clone()).unwrap();
@@ -261,7 +257,7 @@ impl ThreadingWorker {
                         task_count.fetch_sub(1, Ordering::AcqRel);
                         let group = task.group_node.upgrade().unwrap();
                         let group = group.lock().unwrap();
-                        let cnt = group.remained_task_cnt.fetch_sub(1, Ordering::Relaxed);
+                        let cnt = group.decrease_task_count();
 
                         // If last count is 1, we have to decrease counter of successing all groups as a signal.
                         // This is thread-safe and one more thread can not be proceeded in.
@@ -271,15 +267,11 @@ impl ThreadingWorker {
                                 let successor = successor.lock().unwrap();
 
                                 // If decreasing group is ready, insert new tasks to tx.
-                                let last_count = successor
-                                    .remained_predecessor_cnt
-                                    .fetch_sub(1, Ordering::Release);
-
                                 // This is thread-safe and one more thread can not be proceed in.
+                                let last_count = successor.decrease_predecessor_count();
                                 if last_count == 1 {
                                     let wake_count = cmp::min(
-                                        successor.remained_task_cnt.load(Ordering::Relaxed)
-                                            as usize,
+                                        successor.task_count() as usize,
                                         hardware_concurrency,
                                     );
                                     for task in &successor.task_nodes {
@@ -317,7 +309,7 @@ impl Worker for ThreadingWorker {
         for root_group in &topology.root_groups {
             let root_group = root_group.upgrade().unwrap();
 
-            for task in root_group.lock().unwrap().task_nodes.iter() {
+            for task in &root_group.lock().unwrap().task_nodes {
                 self.global_fifo.push(task.clone());
             }
         }

@@ -25,24 +25,6 @@ pub struct GroupRaw {
 }
 
 impl GroupRaw {
-    /// Create new group.
-    ///
-    /// Every heap allocation in inside must be successful.
-    /// Given `name` instance must be valid and not empty. It's okay to be duplicated to other
-    /// group's name.
-    ///
-    /// Given `id` must be valid and not duplicated to other group's id, so must be unique.
-    /// This function is not be called directly, but usually from `Group::new` method.
-    fn new(name: &str, id: usize) -> Self {
-        Self {
-            name: name.to_string(),
-            id,
-            empty_task: Task::empty_task(),
-            tasks: vec![],
-            chains: GroupChains::default(),
-        }
-    }
-
     /// Check group has successor groups.
     pub fn has_successors(&self) -> bool {
         self.chains.success_groups.is_empty()
@@ -61,6 +43,24 @@ impl GroupRaw {
     /// Get the handle of empty task.
     pub(crate) fn handle_of_empty_task(&self) -> TaskHandle {
         self.empty_task.handle()
+    }
+
+    /// Create new group.
+    ///
+    /// Every heap allocation in inside must be successful.
+    /// Given `name` instance must be valid and not empty. It's okay to be duplicated to other
+    /// group's name.
+    ///
+    /// Given `id` must be valid and not duplicated to other group's id, so must be unique.
+    /// This function is not be called directly, but usually from `Group::new` method.
+    fn new(name: &str, id: usize) -> Self {
+        Self {
+            name: name.to_string(),
+            id,
+            empty_task: Task::empty_task(),
+            tasks: vec![],
+            chains: GroupChains::default(),
+        }
     }
 
     /// Check any group which has given id is exist in this group's chain list.
@@ -118,7 +118,6 @@ impl Group {
         if name.is_empty() {
             Err(TaskError::InvalidItemName)
         } else {
-            let f = Box::new(f);
             let task = Task::from_closure(name, f);
             let task_handle = task.handle();
 
@@ -247,8 +246,6 @@ impl Group {
 }
 
 /// Handle type for the group.
-///
-///
 #[derive(Clone)]
 pub struct GroupHandle {
     value: Weak<Mutex<GroupRaw>>,
@@ -306,8 +303,6 @@ impl std::cmp::PartialEq for GroupHandle {
 }
 
 /// Accessor item type for the group.
-///
-///
 pub struct GroupAccessor<'a> {
     guard: MutexGuard<'a, GroupRaw>,
 }
@@ -321,8 +316,6 @@ impl<'a> Deref for GroupAccessor<'a> {
 }
 
 /// Mutable accessor item type for the group.
-///
-///
 pub struct GroupAccessorMut<'a> {
     guard: MutexGuard<'a, GroupRaw>,
 }
@@ -341,9 +334,7 @@ impl<'a> DerefMut for GroupAccessorMut<'a> {
     }
 }
 
-///
-///
-///
+/// Alias
 pub(crate) type GroupList = Vec<GroupHandle>;
 
 /// Create group which can include task items that can be executed simutaneously by `executor::Executor`.
