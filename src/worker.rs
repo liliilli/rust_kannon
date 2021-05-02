@@ -187,6 +187,14 @@ pub struct ThreadingWorker {
 }
 
 impl ThreadingWorker {
+    /// Create new parallel processing worker item with hardware_concurrency thread count.
+    pub fn try_new_automatic() -> Option<Self> {
+        let available_concurrency = thread::available_concurrency()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        Self::try_new(available_concurrency)
+    }
+
     ///
     ///
     ///
