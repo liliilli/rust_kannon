@@ -156,7 +156,7 @@ impl Topology {
     }
 
     /// Create empty topology.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             group_nodes: vec![],
             task_count: 0,
@@ -165,7 +165,7 @@ impl Topology {
     }
 
     /// Rearrange topology with given group list.
-    pub(crate) fn rearrange_from(&mut self, groups: &group::GroupList) {
+    pub fn rearrange_from(&mut self, groups: &group::GroupList) {
         self.root_groups.clear();
         self.task_count = Self::fill_from_list(groups, &mut self.group_nodes);
 
