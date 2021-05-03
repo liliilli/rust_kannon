@@ -22,7 +22,7 @@ impl TestTrait for TestStruct {
 
 #[test]
 fn integration() {
-    use dy_tasksys::{
+    use dy_tasksys::task::{
         executor::Executor, group::GroupManager, topology::Topology, worker::ThreadingWorker,
     };
     use std::sync::{Arc, Mutex};
