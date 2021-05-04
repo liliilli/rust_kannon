@@ -9,10 +9,10 @@ use std::{
 
 /// Macro for helping declaring functor traits which have different generic types and counts.
 macro_rules! decl_functor {
-    {$cnt:expr, $t:ident $($ts:ident)*} => {
+    {$cnt:expr, $($ts:ident) +} => {
         paste! {
-            trait [<Functor $cnt>]<$t, $($ts),*>: Sync + Send {
-                fn call(&self, _: $t, $(_: $ts),*);
+            trait [<Functor $cnt>]<$($ts),*>: Sync + Send {
+                fn call(&self, $(_: $ts),*);
             }
         }
     };
@@ -39,22 +39,16 @@ decl_functor! {0, }
 /// `PhantomWrapper` for parameter 0 count is not needed
 /// because there is no types to contract as a struct generic types.
 macro_rules! decl_phantom_wrapper {
-    {$cnt:expr, $t:ident $($ts:ident)*, $i:ident $($is:ident)*} => {
+    {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
-            struct [<PhantomWrapper $cnt>]<$t, $($ts),*> {
-                [<_ $i>]: PhantomData<$t>,
-                $(
-                    [<_ $is>]: PhantomData<$ts>,
-                )*
+            struct [<PhantomWrapper $cnt>]<$($ts),*> {
+                $([<_ $is>]: PhantomData<$ts>,)*
             }
 
-            impl<$t, $($ts),*> Default for [<PhantomWrapper $cnt>]<$t, $($ts),*> {
+            impl<$($ts),*> Default for [<PhantomWrapper $cnt>]<$($ts),*> {
                 fn default() -> Self {
                     Self {
-                        [<_ $i>]: PhantomData,
-                        $(
-                            [<_ $is>]: PhantomData,
-                        )*
+                        $([<_ $is>]: PhantomData,)*
                     }
                 }
             }
@@ -78,23 +72,19 @@ struct EventClosure<FN> {
 
 /// Macro for helping implementing functor traits to `EventClosure`.
 macro_rules! event_closure_impl_functor {
-    {$cnt:expr, $t:ident $($ts:ident)*, $i:ident $($is:ident)*} => {
+    {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
-            impl<FN, $t, $($ts),*> [<Functor $cnt>]<$t, $($ts),*> for EventClosure<FN>
-            where FN: Fn($t, $($ts),*) + Sync + Send,
+            impl<FN, $($ts),*> [<Functor $cnt>]<$($ts),*> for EventClosure<FN>
+            where FN: Fn($($ts),*) + Sync + Send,
             {
-                fn call(&self, $i: $t, $($is: $ts),*) {
-                    (self.f)($i, $($is),*);
-                }
+                fn call(&self, $($is: $ts),*) { (self.f)($($is),*); }
             }
         }
     };
     {$cnt:expr,} => {
         impl<FN> Functor for EventClosure<FN> where FN: Fn() + Sync + Send,
         {
-            fn call(&self) {
-                (self.f)();
-            }
+            fn call(&self) { (self.f)(); }
         }
     };
 }
@@ -111,17 +101,17 @@ event_closure_impl_functor! {0, }
 
 /// Macro for helping declaring `EventMethod` type which have various generic types.
 macro_rules! decl_event_method {
-    {$cnt:expr, $t:ident $($ts:ident)*} => {
+    {$cnt:expr, $($ts:ident) +} => {
         paste! {
-            struct [<EventMethod $cnt>]<TY, FN, $t, $($ts),*> {
+            struct [<EventMethod $cnt>]<TY, FN, $($ts),*> {
                 t: NonNull<TY>,
                 f: FN,
-                _phantom: [<PhantomWrapper $cnt>]<$t, $($ts),*>,
+                _phantom: [<PhantomWrapper $cnt>]<$($ts),*>,
             }
-            unsafe impl<TY, FN, $t, $($ts),*> Sync for [<EventMethod $cnt>]<TY, FN, $t, $($ts),*>
-                where FN: Fn(&TY, $t, $($ts),*) + Sync + Send {}
-            unsafe impl<TY, FN, $t, $($ts),*> Send for [<EventMethod $cnt>]<TY, FN, $t, $($ts),*>
-                where FN: Fn(&TY, $t, $($ts),*) + Sync + Send {}
+            unsafe impl<TY, FN, $($ts),*> Sync for [<EventMethod $cnt>]<TY, FN, $($ts),*>
+                where FN: Fn(&TY, $($ts),*) + Sync + Send {}
+            unsafe impl<TY, FN, $($ts),*> Send for [<EventMethod $cnt>]<TY, FN, $($ts),*>
+                where FN: Fn(&TY, $($ts),*) + Sync + Send {}
         }
     };
     {$cnt:expr,} => {
@@ -146,18 +136,18 @@ decl_event_method! {0, }
 
 /// Macro for helping implementing generic `Functor` traits to various `EventMethod` types.
 macro_rules! event_method_impl_functor {
-    {$cnt:expr, $t:ident $($ts:ident)*, $i:ident $($is:ident)*} => {
+    {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
-            impl<TY, FN, $t, $($ts),*> [<Functor $cnt>]<$t, $($ts),*> for [<EventMethod $cnt>]<TY, FN, $t, $($ts),*>
-            where FN: Fn(&TY, $t, $($ts),*) + Sync + Send,
+            impl<TY, FN, $($ts),*> [<Functor $cnt>]<$($ts),*> for [<EventMethod $cnt>]<TY, FN, $($ts),*>
+            where FN: Fn(&TY, $($ts),*) + Sync + Send,
             {
-                fn call(&self, $i: $t, $($is: $ts),*) {
-                    (self.f)(unsafe { self.t.as_ref() }, $i, $($is),*);
+                fn call(&self, $($is: $ts),*) {
+                    (self.f)(unsafe { self.t.as_ref() }, $($is),*);
                 }
             }
 
-            impl<TY, FN, $t, $($ts),*> [<EventMethod $cnt>]<TY, FN, $t, $($ts),*>
-            where FN: Fn(&TY, $t, $($ts),*) + Sync + Send,
+            impl<TY, FN, $($ts),*> [<EventMethod $cnt>]<TY, FN, $($ts),*>
+            where FN: Fn(&TY, $($ts),*) + Sync + Send,
             {
                 fn new(t: NonNull<TY>, f: FN) -> Self {
                     Self {
@@ -196,20 +186,20 @@ event_method_impl_functor! {0, }
 
 /// Macro for helping declaring `EventMethodMut` type which have various generic types.
 macro_rules! decl_event_methodmut {
-    {$cnt:expr, $t:ident $($ts:ident)*} => {
+    {$cnt:expr, $($ts:ident) +} => {
         paste! {
-            struct [<EventMethodMut $cnt>]<TY, FN, $t, $($ts),*> {
+            struct [<EventMethodMut $cnt>]<TY, FN, $($ts),*> {
                 t: RefCell<NonNull<TY>>,
                 f: FN,
-                _phantom: [<PhantomWrapper $cnt>]<$t, $($ts),*>,
+                _phantom: [<PhantomWrapper $cnt>]<$($ts),*>,
             }
-            unsafe impl<TY, FN, $t, $($ts),*> Sync for [<EventMethodMut $cnt>]<TY, FN, $t, $($ts),*>
-                where FN: Fn(&mut TY, $t, $($ts),*) + Sync + Send {}
-            unsafe impl<TY, FN, $t, $($ts),*> Send for [<EventMethodMut $cnt>]<TY, FN, $t, $($ts),*>
-                where FN: Fn(&mut TY, $t, $($ts),*) + Sync + Send {}
+            unsafe impl<TY, FN, $($ts),*> Sync for [<EventMethodMut $cnt>]<TY, FN, $($ts),*>
+                where FN: Fn(&mut TY, $($ts),*) + Sync + Send {}
+            unsafe impl<TY, FN, $($ts),*> Send for [<EventMethodMut $cnt>]<TY, FN, $($ts),*>
+                where FN: Fn(&mut TY, $($ts),*) + Sync + Send {}
 
-            impl<TY, FN, $t, $($ts),*> [<EventMethodMut $cnt>]<TY, FN, $t, $($ts),*>
-            where FN: Fn(&mut TY, $t, $($ts),*) + Sync + Send,
+            impl<TY, FN, $($ts),*> [<EventMethodMut $cnt>]<TY, FN, $($ts),*>
+            where FN: Fn(&mut TY, $($ts),*) + Sync + Send,
             {
                 fn new(t: RefCell<NonNull<TY>>, f: FN) -> Self {
                     Self {
@@ -247,13 +237,13 @@ decl_event_methodmut! {0, }
 
 /// Macro for helping implementing generic `Functor` traits to various `EventMethodMut` types.
 macro_rules! event_methodmut_impl_functor {
-    {$cnt:expr, $t:ident $($ts:ident)*, $i:ident $($is:ident)*} => {
+    {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
-            impl<TY, FN, $t, $($ts),*> [<Functor $cnt>]<$t, $($ts),*> for [<EventMethodMut $cnt>]<TY, FN, $t, $($ts),*>
-            where FN: Fn(&mut TY, $t, $($ts),*) + Sync + Send,
+            impl<TY, FN, $($ts),*> [<Functor $cnt>]<$($ts),*> for [<EventMethodMut $cnt>]<TY, FN, $($ts),*>
+            where FN: Fn(&mut TY, $($ts),*) + Sync + Send,
             {
-                fn call(&self, $i: $t, $($is: $ts),*) {
-                    (self.f)(unsafe { self.t.borrow_mut().as_mut() }, $i, $($is),*);
+                fn call(&self, $($is: $ts),*) {
+                    (self.f)(unsafe { self.t.borrow_mut().as_mut() }, $($is),*);
                 }
             }
         }
@@ -280,10 +270,10 @@ event_methodmut_impl_functor! {0, }
 
 /// Macro for helping declaring `EventRaw` type which have various generic types.
 macro_rules! decl_event_raw {
-    {$cnt:expr, $t:ident $($ts:ident)*} => {
+    {$cnt:expr, $($ts:ident) +} => {
         paste! {
-            struct [<EventRaw $cnt>]<$t, $($ts),*> {
-                func: Box<dyn [<Functor $cnt>]<$t, $($ts),*>>,
+            struct [<EventRaw $cnt>]<$($ts),*> {
+                func: Box<dyn [<Functor $cnt>]<$($ts),*>>,
             }
         }
     };
@@ -306,11 +296,11 @@ decl_event_raw! {0, }
 
 /// Macro for helping implementing methods for various `EventRaw` types.
 macro_rules! event_raw_impl_call {
-    {$cnt:expr, $t:ident $($ts:ident)*, $i:ident $($is:ident)*} => {
+    {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
-            impl<$t, $($ts),*> [<EventRaw $cnt>]<$t, $($ts),*> {
-                fn call(&self, $i: $t, $($is: $ts),*) {
-                    self.func.call($i, $($is),*);
+            impl<$($ts),*> [<EventRaw $cnt>]<$($ts),*> {
+                fn call(&self, $($is: $ts),*) {
+                    self.func.call($($is),*);
                 }
             }
         }
@@ -336,16 +326,14 @@ event_raw_impl_call! {0, }
 
 /// Macro for helping implementing methods for various `EventRaw` types.
 macro_rules! event_raw_impl_from {
-    {$cnt:expr, $t:ident $($ts:ident)*} => {
+    {$cnt:expr, $($ts:ident) +} => {
         paste! {
-            impl<$t, $($ts),*> [<EventRaw $cnt>]<$t, $($ts),*>
-            where
-                $t: 'static,
-                $($ts: 'static),*
+            impl<$($ts),*> [<EventRaw $cnt>]<$($ts),*>
+            where $($ts: 'static),*
             {
                 fn from_closure<FN>(f: FN) -> Self
                 where
-                    FN: Fn($t, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn($($ts),*) + Sync + Send + 'static,
                 {
                     Self {
                         func: Box::new(EventClosure { f }),
@@ -355,20 +343,20 @@ macro_rules! event_raw_impl_from {
                 fn from_method<TY, FN>(t: &TY, f: FN) -> Self
                 where
                     TY: 'static,
-                    FN: Fn(&TY, $t, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&TY, $($ts),*) + Sync + Send + 'static,
                 {
                     let t = NonNull::new(t as *const _ as *mut TY).unwrap();
-                    let i = [<EventMethod $cnt>]::<TY, FN, $t, $($ts),*>::new(t, f);
+                    let i = [<EventMethod $cnt>]::<TY, FN, $($ts),*>::new(t, f);
                     Self { func: Box::new(i) }
                 }
 
                 fn from_method_mut<TY, FN>(t: &mut TY, f: FN) -> Self
                 where
                     TY: 'static,
-                    FN: Fn(&mut TY, $t, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&mut TY, $($ts),*) + Sync + Send + 'static,
                 {
                     let t = RefCell::new(NonNull::new(t as *mut TY).unwrap());
-                    let i = [<EventMethodMut $cnt>]::<TY, FN, $t, $($ts),*>::new(t, f);
+                    let i = [<EventMethodMut $cnt>]::<TY, FN, $($ts),*>::new(t, f);
                     Self { func: Box::new(i) }
                 }
             }
@@ -420,10 +408,10 @@ event_raw_impl_from! {0,}
 
 /// Macro for helping declaring `EventHandle` type which have various generic types.
 macro_rules! decl_event_handle {
-    {$cnt:expr, $t:ident $($ts:ident)*} => {
+    {$cnt:expr, $($ts:ident) +} => {
         paste! {
-            pub(super) struct [<EventHandle $cnt>]<$t, $($ts),*> {
-                raw: Weak<[<EventRaw $cnt>]<$t, $($ts),*>>,
+            pub(super) struct [<EventHandle $cnt>]<$($ts),*> {
+                raw: Weak<[<EventRaw $cnt>]<$($ts),*>>,
             }
         }
     };
@@ -446,12 +434,12 @@ decl_event_handle! {0, }
 
 /// Macro for helping implementing methods for various `EventHandle` types.
 macro_rules! event_handle_impl_call {
-    {$cnt:expr, $t:ident $($ts:ident)*, $i:ident $($is:ident)*} => {
+    {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
-            impl<$t, $($ts),*> [<EventHandle $cnt>]<$t, $($ts),*> {
-                pub(super) fn call(&self, $i: $t, $($is: $ts),*) {
+            impl<$($ts),*> [<EventHandle $cnt>]<$($ts),*> {
+                pub(super) fn call(&self, $($is: $ts),*) {
                     if let Some(raw) = self.raw.upgrade() {
-                        raw.call($i, $($is),*);
+                        raw.call($($is),*);
                     }
                 }
             }
@@ -480,10 +468,10 @@ event_handle_impl_call! {0, }
 
 /// Macro for helping declaring `Event` type which have various generic types.
 macro_rules! decl_event {
-    {$cnt:expr, $t:ident $($ts:ident)*} => {
+    {$cnt:expr, $($ts:ident) +} => {
         paste! {
-            pub struct [<Event $cnt>]<$t, $($ts),*> {
-                raw: Arc<[<EventRaw $cnt>]<$t, $($ts),*>>,
+            pub struct [<Event $cnt>]<$($ts),*> {
+                raw: Arc<[<EventRaw $cnt>]<$($ts),*>>,
             }
         }
     };
@@ -506,43 +494,41 @@ decl_event! {0, }
 
 /// Macro for helping implementing methods for various `Event` types.
 macro_rules! event_impl_from {
-    {$cnt:expr, $t:ident $($ts:ident)*} => {
+    {$cnt:expr, $($ts:ident) +} => {
         paste! {
-            impl<$t, $($ts),*> [<Event $cnt>]<$t, $($ts),*>
-            where
-                $t: 'static,
-                $($ts: 'static),*
+            impl<$($ts),*> [<Event $cnt>]<$($ts),*>
+            where $($ts: 'static),*
             {
                 pub(super) fn from_closure<FN>(f: FN) -> Self
                 where
-                    FN: Fn($t, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn($($ts),*) + Sync + Send + 'static,
                 {
-                    let raw = [<EventRaw $cnt>]::<$t, $($ts),*>::from_closure(f);
+                    let raw = [<EventRaw $cnt>]::<$($ts),*>::from_closure(f);
                     Self { raw: Arc::new(raw) }
                 }
 
                 pub(super) fn from_method<TY, FN>(t: &TY, f: FN) -> Self
                 where
                     TY: 'static,
-                    FN: Fn(&TY, $t, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&TY, $($ts),*) + Sync + Send + 'static,
                 {
-                    let raw = [<EventRaw $cnt>]::<$t, $($ts),*>::from_method(t, f);
+                    let raw = [<EventRaw $cnt>]::<$($ts),*>::from_method(t, f);
                     Self { raw: Arc::new(raw) }
                 }
 
                 pub(super) fn from_method_mut<TY, FN>(t: &mut TY, f: FN) -> Self
                 where
                     TY: 'static,
-                    FN: Fn(&mut TY, $t, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&mut TY, $($ts),*) + Sync + Send + 'static,
                 {
-                    let raw = [<EventRaw $cnt>]::<$t, $($ts),*>::from_method_mut(t, f);
+                    let raw = [<EventRaw $cnt>]::<$($ts),*>::from_method_mut(t, f);
                     Self { raw: Arc::new(raw) }
                 }
             }
 
-            impl<$t, $($ts),*> [<Event $cnt>]<$t, $($ts),*> {
-                pub(super) fn handle(&self) -> [<EventHandle $cnt>]<$t, $($ts),*> {
-                    [<EventHandle $cnt>]::<$t, $($ts),*> {
+            impl<$($ts),*> [<Event $cnt>]<$($ts),*> {
+                pub(super) fn handle(&self) -> [<EventHandle $cnt>]<$($ts),*> {
+                    [<EventHandle $cnt>]::<$($ts),*> {
                         raw: Arc::downgrade(&self.raw),
                     }
                 }
