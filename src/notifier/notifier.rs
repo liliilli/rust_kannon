@@ -176,7 +176,7 @@ macro_rules! notifier_impl_register {
                 $($ts: Copy + 'static,)*
             {
                 #[must_use]
-                fn register_closure(
+                pub fn register_closure(
                     &mut self,
                     f: impl Fn($t, $($ts),*) + Sync + Send + 'static,
                 ) -> [<Event $cnt>]<$t, $($ts),*> {
