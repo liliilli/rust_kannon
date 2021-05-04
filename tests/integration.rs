@@ -1,4 +1,4 @@
-use dy_tasksys;
+use kannon;
 
 trait TestTrait {
     fn print_something(&self);
@@ -22,7 +22,7 @@ impl TestTrait for TestStruct {
 
 #[test]
 fn integration() {
-    use dy_tasksys::task::{
+    use kannon::task::{
         executor::Executor, group::GroupManager, topology::Topology, worker::ThreadingWorker,
     };
     use std::sync::{Arc, Mutex};
