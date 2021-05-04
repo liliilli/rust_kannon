@@ -56,9 +56,8 @@ macro_rules! notifier_impl_invoke {
     {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
             impl<$($ts),*> [<Notifier $cnt>]<$($ts),*>
-            where $($ts: Copy,)*
             {
-                pub fn invoke(&self, $($is: $ts),*) {
+                pub fn invoke<'a>(&'a self, $($is: &'a $ts),*) {
                     for handle in &self.readys {
                         handle.call($($is),*);
                     }
@@ -92,10 +91,10 @@ macro_rules! notifier_impl_internals {
     {$cnt:expr, $($ts:ident) +} => {
         paste! {
             impl<$($ts),*> [<Notifier $cnt>]<$($ts),*>
-            where $($ts: Copy + 'static,)*
+            where $($ts: 'static,)*
             {
                 #[must_use]
-                fn create_closure(f: impl Fn($($ts),*) + Sync + Send + 'static,
+                fn create_closure(f: impl Fn($(&'_ $ts),*) + Sync + Send + 'static,
                 ) -> ([<Event $cnt>]<$($ts),*>, [<EventHandle $cnt>]<$($ts),*>) {
                     let event = [<Event $cnt>]::<$($ts),*>::from_closure(f);
                     let handle = event.handle();
@@ -107,7 +106,7 @@ macro_rules! notifier_impl_internals {
                     ([<Event $cnt>]<$($ts),*>, [<EventHandle $cnt>]<$($ts),*>)
                 where
                     TY: 'static,
-                    FN: Fn(&TY, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&TY, $(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let event = [<Event $cnt>]::<$($ts),*>::from_method(t, f);
                     let handle = event.handle();
@@ -119,7 +118,7 @@ macro_rules! notifier_impl_internals {
                     ([<Event $cnt>]<$($ts),*>, [<EventHandle $cnt>]<$($ts),*>)
                 where
                     TY: 'static,
-                    FN: Fn(&mut TY, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&mut TY, $(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let event = [<Event $cnt>]::<$($ts),*>::from_method_mut(t, f);
                     let handle = event.handle();
@@ -167,12 +166,12 @@ macro_rules! notifier_impl_register {
     {$cnt:expr, $($ts:ident) +} => {
         paste! {
             impl<$($ts),*> [<Notifier $cnt>]<$($ts),*>
-            where $($ts: Copy + 'static,)*
+            where $($ts: 'static,)*
             {
                 #[must_use]
                 pub fn register_closure(
                     &mut self,
-                    f: impl Fn($($ts),*) + Sync + Send + 'static,
+                    f: impl Fn($(&'_ $ts),*) + Sync + Send + 'static,
                 ) -> [<Event $cnt>]<$($ts),*> {
                     let (event, handle) = Self::create_closure(f);
                     self.insert_handle(handle);
@@ -183,7 +182,7 @@ macro_rules! notifier_impl_register {
                 pub fn register_method<TY, FN>(&mut self, t: &TY, f: FN) -> [<Event $cnt>]<$($ts),*>
                 where
                     TY: 'static,
-                    FN: Fn(&TY, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&TY, $(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let (event, handle) = Self::create_method(t, f);
                     self.insert_handle(handle);
@@ -194,7 +193,7 @@ macro_rules! notifier_impl_register {
                 pub fn register_method_mut<TY, FN>(&mut self, t: &mut TY, f: FN) -> [<Event $cnt>]<$($ts),*>
                 where
                     TY: 'static,
-                    FN: Fn(&mut TY, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&mut TY, $(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let (event, handle) = Self::create_method_mut(t, f);
                     self.insert_handle(handle);

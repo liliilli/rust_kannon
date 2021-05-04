@@ -22,33 +22,33 @@ impl Test1 {
 
     fn test_method(
         &self,
-        a: Subject1,
-        b: i32,
-        c: i32,
-        d: i32,
-        e: i32,
-        f: i32,
-        g: i32,
-        h: Subject1,
+        a: &Subject1,
+        b: &String,
+        c: &i32,
+        d: &i32,
+        e: &i32,
+        f: &i32,
+        g: &i32,
+        h: &Subject1,
     ) {
         println!(
             "From Test1, {}, {}, {}, {}, {}, {}, {}, {}",
             self.0, self.1, self.2, self.3, self.4, self.5, self.6, self.7
         );
         println!(
-            "And from input!, {}, {}, {}, {}, {}, {}, {}, {}",
+            "And from input!, {}, {:?}, {}, {}, {}, {}, {}, {}",
             a.0, b, c, d, e, f, g, h.0
         );
     }
 }
 
 #[test]
-fn test1() {
+fn event_notify_test() {
     let mut notifier =
-        notifier::Notifier8::<Subject1, i32, i32, i32, i32, i32, i32, Subject1>::new();
+        notifier::Notifier8::<Subject1, String, i32, i32, i32, i32, i32, Subject1>::new();
     let _event1 = notifier.register_closure(|a, b, c, d, e, f, g, h| {
         println!(
-            "From event1, {}, {}, {}, {}, {}, {}, {}, {}",
+            "From event1, {}, {:?}, {}, {}, {}, {}, {}, {}",
             a.0, b, c, d, e, f, g, h.0
         );
     });
@@ -58,14 +58,30 @@ fn test1() {
 
     let mut rng = rand::thread_rng();
     let subject1: Subject1 = Subject1(65539);
+    let mut string = "Hello world! This is event / notifier test.".to_string();
+
+    // First try.
     notifier.invoke(
-        subject1,
-        rng.gen_range(-100..=100),
-        rng.gen_range(-100..=100),
-        rng.gen_range(-100..=100),
-        rng.gen_range(-100..=100),
-        rng.gen_range(-100..=100),
-        rng.gen_range(-100..=100),
-        subject1,
+        &subject1,
+        &string,
+        &(rng.gen_range(-100..=100) as i32),
+        &(rng.gen_range(-100..=100) as i32),
+        &(rng.gen_range(-100..=100) as i32),
+        &(rng.gen_range(-100..=100) as i32),
+        &(rng.gen_range(-100..=100) as i32),
+        &subject1,
+    );
+
+    // Ininvocation.
+    string = "Hey ho!!".into();
+    notifier.invoke(
+        &subject1,
+        &string,
+        &(rng.gen_range(-100..=100) as i32),
+        &(rng.gen_range(-100..=100) as i32),
+        &(rng.gen_range(-100..=100) as i32),
+        &(rng.gen_range(-100..=100) as i32),
+        &(rng.gen_range(-100..=100) as i32),
+        &subject1,
     );
 }

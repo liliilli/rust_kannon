@@ -12,7 +12,7 @@ macro_rules! decl_functor {
     {$cnt:expr, $($ts:ident) +} => {
         paste! {
             trait [<Functor $cnt>]<$($ts),*>: Sync + Send {
-                fn call(&self, $(_: $ts),*);
+                fn call(&self, $(_: &'_ $ts),*);
             }
         }
     };
@@ -75,9 +75,9 @@ macro_rules! event_closure_impl_functor {
     {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
             impl<FN, $($ts),*> [<Functor $cnt>]<$($ts),*> for EventClosure<FN>
-            where FN: Fn($($ts),*) + Sync + Send,
+            where for<'any> FN: Fn($(&'any $ts),*) + Sync + Send,
             {
-                fn call(&self, $($is: $ts),*) { (self.f)($($is),*); }
+                fn call<'a>(&'a self, $($is: &'a $ts),*) { (self.f)($($is),*); }
             }
         }
     };
@@ -108,10 +108,8 @@ macro_rules! decl_event_method {
                 f: FN,
                 _phantom: [<PhantomWrapper $cnt>]<$($ts),*>,
             }
-            unsafe impl<TY, FN, $($ts),*> Sync for [<EventMethod $cnt>]<TY, FN, $($ts),*>
-                where FN: Fn(&TY, $($ts),*) + Sync + Send {}
-            unsafe impl<TY, FN, $($ts),*> Send for [<EventMethod $cnt>]<TY, FN, $($ts),*>
-                where FN: Fn(&TY, $($ts),*) + Sync + Send {}
+            unsafe impl<TY, FN, $($ts),*> Sync for [<EventMethod $cnt>]<TY, FN, $($ts),*> where FN: Fn(&TY, $(&'_ $ts),*) + Sync + Send {}
+            unsafe impl<TY, FN, $($ts),*> Send for [<EventMethod $cnt>]<TY, FN, $($ts),*> where FN: Fn(&TY, $(&'_ $ts),*) + Sync + Send {}
         }
     };
     {$cnt:expr,} => {
@@ -139,15 +137,15 @@ macro_rules! event_method_impl_functor {
     {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
             impl<TY, FN, $($ts),*> [<Functor $cnt>]<$($ts),*> for [<EventMethod $cnt>]<TY, FN, $($ts),*>
-            where FN: Fn(&TY, $($ts),*) + Sync + Send,
+            where FN: Fn(&'_ TY, $(&'_ $ts),*) + Sync + Send,
             {
-                fn call(&self, $($is: $ts),*) {
+                fn call<'a>(&'a self, $($is: &'a $ts),*) {
                     (self.f)(unsafe { self.t.as_ref() }, $($is),*);
                 }
             }
 
             impl<TY, FN, $($ts),*> [<EventMethod $cnt>]<TY, FN, $($ts),*>
-            where FN: Fn(&TY, $($ts),*) + Sync + Send,
+            where FN: Fn(&'_ TY, $(&'_ $ts),*) + Sync + Send,
             {
                 fn new(t: NonNull<TY>, f: FN) -> Self {
                     Self {
@@ -193,13 +191,11 @@ macro_rules! decl_event_methodmut {
                 f: FN,
                 _phantom: [<PhantomWrapper $cnt>]<$($ts),*>,
             }
-            unsafe impl<TY, FN, $($ts),*> Sync for [<EventMethodMut $cnt>]<TY, FN, $($ts),*>
-                where FN: Fn(&mut TY, $($ts),*) + Sync + Send {}
-            unsafe impl<TY, FN, $($ts),*> Send for [<EventMethodMut $cnt>]<TY, FN, $($ts),*>
-                where FN: Fn(&mut TY, $($ts),*) + Sync + Send {}
+            unsafe impl<TY, FN, $($ts),*> Sync for [<EventMethodMut $cnt>]<TY, FN, $($ts),*> where FN: Fn(&mut TY, $(&'_ $ts),*) + Sync + Send {}
+            unsafe impl<TY, FN, $($ts),*> Send for [<EventMethodMut $cnt>]<TY, FN, $($ts),*> where FN: Fn(&mut TY, $(&'_ $ts),*) + Sync + Send {}
 
             impl<TY, FN, $($ts),*> [<EventMethodMut $cnt>]<TY, FN, $($ts),*>
-            where FN: Fn(&mut TY, $($ts),*) + Sync + Send,
+            where FN: Fn(&mut TY, $(&'_ $ts),*) + Sync + Send,
             {
                 fn new(t: RefCell<NonNull<TY>>, f: FN) -> Self {
                     Self {
@@ -240,9 +236,9 @@ macro_rules! event_methodmut_impl_functor {
     {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
             impl<TY, FN, $($ts),*> [<Functor $cnt>]<$($ts),*> for [<EventMethodMut $cnt>]<TY, FN, $($ts),*>
-            where FN: Fn(&mut TY, $($ts),*) + Sync + Send,
+            where FN: Fn(&mut TY, $(&'_ $ts),*) + Sync + Send,
             {
-                fn call(&self, $($is: $ts),*) {
+                fn call<'a>(&'a self, $($is: &'a $ts),*) {
                     (self.f)(unsafe { self.t.borrow_mut().as_mut() }, $($is),*);
                 }
             }
@@ -299,7 +295,7 @@ macro_rules! event_raw_impl_call {
     {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
             impl<$($ts),*> [<EventRaw $cnt>]<$($ts),*> {
-                fn call(&self, $($is: $ts),*) {
+                fn call<'a>(&'a self, $($is: &'a $ts),*) {
                     self.func.call($($is),*);
                 }
             }
@@ -333,7 +329,7 @@ macro_rules! event_raw_impl_from {
             {
                 fn from_closure<FN>(f: FN) -> Self
                 where
-                    FN: Fn($($ts),*) + Sync + Send + 'static,
+                    FN: Fn($(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     Self {
                         func: Box::new(EventClosure { f }),
@@ -343,7 +339,7 @@ macro_rules! event_raw_impl_from {
                 fn from_method<TY, FN>(t: &TY, f: FN) -> Self
                 where
                     TY: 'static,
-                    FN: Fn(&TY, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&TY, $(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let t = NonNull::new(t as *const _ as *mut TY).unwrap();
                     let i = [<EventMethod $cnt>]::<TY, FN, $($ts),*>::new(t, f);
@@ -353,7 +349,7 @@ macro_rules! event_raw_impl_from {
                 fn from_method_mut<TY, FN>(t: &mut TY, f: FN) -> Self
                 where
                     TY: 'static,
-                    FN: Fn(&mut TY, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&mut TY, $(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let t = RefCell::new(NonNull::new(t as *mut TY).unwrap());
                     let i = [<EventMethodMut $cnt>]::<TY, FN, $($ts),*>::new(t, f);
@@ -437,7 +433,7 @@ macro_rules! event_handle_impl_call {
     {$cnt:expr, $($ts:ident) +, $($is:ident) +} => {
         paste! {
             impl<$($ts),*> [<EventHandle $cnt>]<$($ts),*> {
-                pub(super) fn call(&self, $($is: $ts),*) {
+                pub(super) fn call<'a>(&'a self, $($is: &'a $ts),*) {
                     if let Some(raw) = self.raw.upgrade() {
                         raw.call($($is),*);
                     }
@@ -501,7 +497,7 @@ macro_rules! event_impl_from {
             {
                 pub(super) fn from_closure<FN>(f: FN) -> Self
                 where
-                    FN: Fn($($ts),*) + Sync + Send + 'static,
+                    FN: Fn($(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let raw = [<EventRaw $cnt>]::<$($ts),*>::from_closure(f);
                     Self { raw: Arc::new(raw) }
@@ -510,7 +506,7 @@ macro_rules! event_impl_from {
                 pub(super) fn from_method<TY, FN>(t: &TY, f: FN) -> Self
                 where
                     TY: 'static,
-                    FN: Fn(&TY, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&TY, $(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let raw = [<EventRaw $cnt>]::<$($ts),*>::from_method(t, f);
                     Self { raw: Arc::new(raw) }
@@ -519,7 +515,7 @@ macro_rules! event_impl_from {
                 pub(super) fn from_method_mut<TY, FN>(t: &mut TY, f: FN) -> Self
                 where
                     TY: 'static,
-                    FN: Fn(&mut TY, $($ts),*) + Sync + Send + 'static,
+                    FN: Fn(&mut TY, $(&'_ $ts),*) + Sync + Send + 'static,
                 {
                     let raw = [<EventRaw $cnt>]::<$($ts),*>::from_method_mut(t, f);
                     Self { raw: Arc::new(raw) }
