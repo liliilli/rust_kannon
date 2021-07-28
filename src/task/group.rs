@@ -400,7 +400,7 @@ impl GroupManager {
     ///
     ///
     pub fn is_cyclic(&self) -> bool {
-        todo!("Not yet implemented");
+        todo!("Not implemented yet.");
         let pred: &dyn Fn(&&GroupHandle) -> bool = &|x: &&GroupHandle| match (*x).value_as_ref() {
             None => false,
             Some(accessor) => accessor.has_predecessors(),

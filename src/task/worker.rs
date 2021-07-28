@@ -156,10 +156,14 @@ impl BlockedThreads {
     ///
     ///
     pub fn try_unparks_of(&mut self, count: usize) {
-        self.list
-            .drain(0..count)
-            .into_iter()
-            .for_each(|t| t.unpark());
+        if self.list.len() >= count {
+            // drain() panics when given `count` is more than `self.list.len()`,
+            // we have to check.
+            self.list
+                .drain(0..count)
+                .into_iter()
+                .for_each(|t| t.unpark());
+        }
     }
 
     ///
