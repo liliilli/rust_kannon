@@ -358,6 +358,192 @@ impl Drop for ThreadingWorker {
     }
 }
 
+///
+///
+///
+pub struct DelegatedThreadingWorker {
+    ///
+    global_fifo: Arc<crossbeam_deque::Injector<TaskNode>>,
+    ///
+    threads: Vec<JoinHandle<()>>,
+    ///
+    blocked_threads: Arc<Mutex<BlockedThreads>>,
+    ///
+    is_worker_terminated: Arc<AtomicBool>,
+    ///
+    task_count: Arc<AtomicUsize>,
+}
+
+impl DelegatedThreadingWorker {
+    /// Create new parallel processing worker item with available thread count.
+    pub fn try_new_automatic() -> Option<Self> {
+        let available_concurrency = thread::available_concurrency()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        Self::try_new(available_concurrency, |accessor| accessor.call())
+    }
+
+    /// Create workers.
+    pub fn try_new<FN>(worker_count: usize, delegate: FN) -> Option<Self>
+    where
+        for<'a> FN: Fn(super::task::TaskAccessor<'a>) + Sync + Send + 'static,
+    {
+        if worker_count == 0 {
+            return None;
+        }
+
+        let is_worker_terminated = Arc::new(AtomicBool::new(false));
+        let global_fifo = Arc::new(crossbeam_deque::Injector::<TaskNode>::new());
+        let blocked_threads = Arc::new(Mutex::new(BlockedThreads::new()));
+        let task_count = Arc::new(AtomicUsize::new(0));
+        let delegate = Arc::new(delegate);
+
+        // Create threads and related data.
+        let threads: Vec<_> = (0..worker_count)
+            .into_iter()
+            .map(|id| {
+                // Clone items.
+                let is_worker_terminated = is_worker_terminated.clone();
+                let global_fifo = global_fifo.clone();
+                let blocked_threads = blocked_threads.clone();
+                let task_count = task_count.clone();
+                let backoff = crossbeam_utils::Backoff::new();
+                let delegate = delegate.clone();
+
+                // Build thread.
+                thread::Builder::new()
+                    .name(format!("ThreadingWorker thread_index:{}", id).into())
+                    .spawn(move || loop {
+                        // If workers are terminated, we have to exit.
+                        if is_worker_terminated.load(Ordering::Acquire) {
+                            return ();
+                        }
+
+                        // Get task except for received termination signal.
+                        let task = loop {
+                            let t = global_fifo.steal();
+                            if t.is_success() {
+                                backoff.reset();
+                                break t.success().unwrap();
+                            }
+                            if t.is_empty() {
+                                let is_inserted = {
+                                    let mut guard = blocked_threads.lock().unwrap();
+                                    if guard.is_insertable() {
+                                        guard.push(thread::current());
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                };
+                                if is_inserted {
+                                    thread::park();
+                                }
+
+                                if is_worker_terminated.load(Ordering::SeqCst) {
+                                    return ();
+                                }
+                            }
+
+                            // We have to wait thread for a while for retrying stealing.
+                            backoff.spin();
+                        };
+                        if let Some(accessor) = task.handle.value_as_ref() {
+                            delegate(accessor);
+                            //accessor.call();
+                        };
+
+                        // Decrease group task counter by 1.
+                        task_count.fetch_sub(1, Ordering::AcqRel);
+                        let group = task.group_node.upgrade().unwrap();
+                        let group = group.lock().unwrap();
+                        let cnt = group.decrease_task_count();
+
+                        // If last count is 1, we have to decrease counter of successing all groups as a signal.
+                        // This is thread-safe and one more thread can not be proceeded in.
+                        if cnt == 1 {
+                            for successor in &group.successor_nodes {
+                                let successor = successor.upgrade().unwrap();
+                                let successor = successor.lock().unwrap();
+
+                                // If decreasing group is ready, insert new tasks to tx.
+                                // This is thread-safe and one more thread can not be proceed in.
+                                let last_count = successor.decrease_predecessor_count();
+                                if last_count == 1 {
+                                    let wake_count =
+                                        cmp::min(successor.task_count() as usize, worker_count);
+                                    for task in &successor.task_nodes {
+                                        global_fifo.push(task.clone());
+                                    }
+
+                                    // Weak up list.
+                                    let mut guard = blocked_threads.lock().unwrap();
+                                    guard.try_unparks_of(wake_count);
+                                }
+                            }
+                        }
+                    })
+                    .unwrap()
+            })
+            .collect();
+
+        Some(Self {
+            global_fifo,
+            threads,
+            blocked_threads,
+            is_worker_terminated,
+            task_count,
+        })
+    }
+}
+
+impl Worker for DelegatedThreadingWorker {
+    fn ready(&self, topology: &Topology) -> Result<(), TaskError> {
+        // Set task count.
+        // Counter mut be set before insertion of tasks.
+        self.task_count.store(topology.task_count, Ordering::SeqCst);
+
+        // Insert root group's task into tx.
+        for root_group in &topology.root_groups {
+            let root_group = root_group.upgrade().unwrap();
+
+            for task in &root_group.lock().unwrap().task_nodes {
+                self.global_fifo.push(task.clone());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn execute(&self) -> Result<(), TaskError> {
+        let mut threads = self.blocked_threads.lock().unwrap();
+        threads.unpark_all();
+
+        Ok(())
+    }
+
+    fn wait_finish(&self) {
+        let backoff = crossbeam_utils::Backoff::new();
+        while self.task_count.load(Ordering::Relaxed) != 0 {
+            backoff.spin();
+        }
+    }
+}
+
+impl Drop for DelegatedThreadingWorker {
+    fn drop(&mut self) {
+        self.is_worker_terminated.store(true, Ordering::SeqCst);
+        self.wait_finish();
+        {
+            let mut threads = self.blocked_threads.lock().unwrap();
+            threads.insertable = false;
+            threads.unpark_all();
+        }
+
+        self.threads.drain(..).for_each(|h| h.join().unwrap());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

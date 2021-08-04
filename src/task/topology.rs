@@ -232,7 +232,7 @@ impl GroupNode {
 }
 
 #[derive(Clone)]
-pub(crate) struct TaskNode {
+pub struct TaskNode {
     pub(crate) handle: task::TaskHandle,
     pub(crate) group_node: Weak<Mutex<GroupNode>>,
 }
