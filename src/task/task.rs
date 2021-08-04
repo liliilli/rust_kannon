@@ -84,7 +84,7 @@ pub struct TaskRaw {
 
 impl TaskRaw {
     /// Call binded function (closure, or methods).
-    pub(crate) fn call(&self) {
+    pub fn call(&self) {
         if let Some(func) = &self.func {
             func.call();
         }
